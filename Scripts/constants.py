@@ -1,0 +1,29 @@
+# Pin assignments
+NOSE_GEAR_PIN = 13
+LEFT_GEAR_PIN = 19
+RIGHT_GEAR_PIN = 26
+LEFT_NAV_PIN = 22
+RIGHT_NAV_PIN = 23
+TAIL_NAV_PIN = 24
+COAX_SIGNAL_PIN = 2
+MIC_CONTROL_PIN = 4
+
+# Pin labels
+PIN_LABELS = {
+    NOSE_GEAR_PIN: "Nose Gear",
+    LEFT_GEAR_PIN: "Left Gear",
+    RIGHT_GEAR_PIN: "Right Gear",
+    LEFT_NAV_PIN: "Left Nav",
+    RIGHT_NAV_PIN: "Right Nav",
+    TAIL_NAV_PIN: "Tail Nav"
+}
+
+# Pins to monitor
+MONITORING_PINS = [
+    NOSE_GEAR_PIN, LEFT_GEAR_PIN, RIGHT_GEAR_PIN,
+    LEFT_NAV_PIN, RIGHT_NAV_PIN, TAIL_NAV_PIN,
+    COAX_SIGNAL_PIN, MIC_CONTROL_PIN
+]
+
+# Config file name
+CONFIG_FILE = "gpio_config.json" 
