@@ -2,8 +2,10 @@ import tkinter as tk
 from tkinter import messagebox
 from tkinter import ttk
 import logging
+import traceback
 from config_manager import save_config, config_data
-from constants import NOSE_GEAR_PIN, LEFT_GEAR_PIN, RIGHT_GEAR_PIN, LEFT_NAV_PIN, RIGHT_NAV_PIN, TAIL_NAV_PIN, MIC_CONTROL_PIN, COAX_SIGNAL_PIN
+from constants import NOSE_GEAR_PIN, LEFT_GEAR_PIN, RIGHT_GEAR_PIN, LEFT_NAV_PIN, RIGHT_NAV_PIN, TAIL_NAV_PIN, MIC_CONTROL_PIN, ANALOG_INPUT_MODULE_ID
+from gpio_handler import SIMULATED_MODE
 logger = logging.getLogger("GPIO_Control")
 
 
@@ -49,20 +51,18 @@ def open_config_window(self):
             "Landing Gear Control": str(NOSE_GEAR_PIN),
             "Nav Light Toggle": str(LEFT_NAV_PIN),
             "Mic Control": str(MIC_CONTROL_PIN),
-            "Coax Signal": str(COAX_SIGNAL_PIN)
+            "Analog Input Module": ANALOG_INPUT_MODULE_ID
         }
 
         # List of available functions
         predefined_functions = [
-            "Coax Signal",
+            "Analog Input Module",
             "Mic Control",
             "Nav Light Toggle",
             "Landing Gear Control",
             "Rotary Switch",
             "Relay Control",
             "Lighting Control",
-            "Potentiometer Control",
-            "Temp Sensor",
             "Speed Sensor",
             "Light Sensor",
             "Strobe Light"
@@ -92,28 +92,6 @@ def open_config_window(self):
                                           width=30)
         function_dropdown.pack(pady=(0, 20))
 
-        def clear_all_configs(self):
-            """Clear all GPIO configurations"""
-            try:
-                if messagebox.askyesno("Confirm", "Are you sure you want to clear all GPIO configurations?"):
-                    logger.info("Clearing all GPIO configurations")
-
-                    if hasattr(self, 'config_window'):
-                        self.config_window.destroy()
-
-                    # Stop mic checking if it was running
-                    self.stop_mic_check()
-
-                    config_data.clear()
-                    save_config(config_data)
-                    self.load_gpio_controls()
-                    self.update_overlay_status()
-                    logger.info("All configurations cleared")
-            except Exception as e:
-                logger.error(f"Error clearing configurations: {e}")
-                logger.error(traceback.format_exc())
-                messagebox.showerror("Error", f"Failed to clear configurations: {e}")
-
         # Function selection handler
         def on_function_selected(event):
             selected_function = function_var.get()
@@ -129,6 +107,8 @@ def open_config_window(self):
                     additional_info = f"\n\nThis will also configure pins:\n- Left Gear: GPIO {LEFT_GEAR_PIN}\n- Right Gear: GPIO {RIGHT_GEAR_PIN}"
                 elif selected_function == "Nav Light Toggle":
                     additional_info = f"\n\nThis will also configure pins:\n- Right Nav: GPIO {RIGHT_NAV_PIN}\n- Tail Nav: GPIO {TAIL_NAV_PIN}"
+                elif selected_function == "Analog Input Module":
+                    additional_info = f"\n\nThis will configure I2C communication for:\n- Gauges (POT, TEMP, AUX)\n- Coax signal monitoring\n- Mic audio level monitoring"
 
                 def auto_close_info():
                     popup = tk.Toplevel(self.root)
@@ -137,7 +117,7 @@ def open_config_window(self):
                     popup.configure(bg="#1e1e2e")
 
                     info_label = self.tkLabel(popup,
-                                              text=f"The function '{selected_function}' is internally assigned to GPIO pin {predefined_function_pins[selected_function]}.{additional_info}",
+                                              text=f"The function '{selected_function}' is internally assigned to GPIO pins {predefined_function_pins[selected_function]}.{additional_info}",
                                               wraplength=330,
                                               justify="center",
                                               font=("Arial", 12),
@@ -179,6 +159,10 @@ def open_config_window(self):
                 config_data[str(RIGHT_NAV_PIN)] = f"{function} (Right)"
                 config_data[str(TAIL_NAV_PIN)] = f"{function} (Tail)"
                 logger.info(f"Configured nav light pins: {LEFT_NAV_PIN}, {RIGHT_NAV_PIN}, {TAIL_NAV_PIN}")
+            elif function == "Analog Input Module":
+                # Configure the analog input module (uses pin identifier for both I2C pins)
+                config_data[ANALOG_INPUT_MODULE_ID] = function
+                logger.info(f"Configured Analog Input Module (I2C pins 2&3)")
             else:
                 # Standard single pin configuration
                 config_data[pin] = function

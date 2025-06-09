@@ -1,11 +1,33 @@
 import json
 import logging
+import os
 from tkinter import messagebox
 from constants import CONFIG_FILE
 
 logger = logging.getLogger("GPIO_Control")
 
 config_data = {}
+
+def clear_config_on_startup():
+    """Clear all configurations on program startup for classroom use"""
+    global config_data
+    logger.info("🎓 CLASSROOM MODE: Clearing all configurations for new class session")
+    try:
+        # Clear the in-memory config
+        config_data = {}
+        
+        # Clear the config file by writing empty dict
+        with open(CONFIG_FILE, "w") as f:
+            json.dump({}, f, indent=4)
+            
+        logger.info("✅ All configurations cleared successfully - ready for new class")
+        return True
+        
+    except Exception as e:
+        logger.error(f"❌ Error clearing configuration on startup: {e}")
+        # Even if file operation fails, ensure in-memory config is clear
+        config_data = {}
+        return False
 
 def load_config():
     """Load GPIO configuration from file"""

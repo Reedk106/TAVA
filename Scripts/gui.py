@@ -4,7 +4,7 @@ import tkinter as tk
 import logging
 from gpio_handler import initialize_gpio, cleanup_gpio, SIMULATED_MODE, GPIO, PIN_STATES
 from config_manager import load_config, save_config, config_data
-from utils import is_function_configured, toggle_gpio_state
+from utils import is_function_configured, is_mic_and_analog_configured, toggle_gpio_state, get_app_version
 from constants import *
 import math
 import time
@@ -189,7 +189,7 @@ class GPIOConfiguratorApp:
     def key_down(self, event):
         """Handle key down event for mic control"""
         try:
-            if not self.keyed_up and is_function_configured(config_data, "Mic Control"):
+            if not self.keyed_up and is_mic_and_analog_configured(config_data):
                 # Only respond to keyboard events, not pin state
                 if event:  # Only activate from keyboard press 'k'
                     logger.debug("Key down event received - activating mic")
@@ -204,7 +204,7 @@ class GPIOConfiguratorApp:
     def key_up(self, event):
         """Handle key up event for mic control"""
         try:
-            if self.keyed_up and is_function_configured(config_data, "Mic Control"):
+            if self.keyed_up and is_mic_and_analog_configured(config_data):
                 # Only respond if the event was triggered by keyboard
                 if event:
                     logger.debug("Key up event received - deactivating mic")
@@ -226,7 +226,7 @@ class GPIOConfiguratorApp:
 
                 i2c = busio.I2C(board.SCL, board.SDA)
                 ads = ADS.ADS1115(i2c)
-                mic_channel = AnalogIn(ads, ADS.P0)
+                mic_channel = AnalogIn(ads, getattr(ADS, f'P{ADS_MIC_CHANNEL}'))  # Mic on P3
 
                 self.audio_running = True
 
@@ -330,10 +330,6 @@ class GPIOConfiguratorApp:
                 # Keep these pins as INPUT with pull-up
                 GPIO.setup(pin, GPIO.IN, pull_up_down=GPIO.PUD_UP)
                 logger.info(f"Configured {function} pin {pin} as INPUT with pull-up")
-                #search for pot control
-            elif function == "Potentiometer Control":
-                logger.info("Potentiometer control configured - starting analog monitoring")
-                self.start_analog_monitoring()
             else:
                 # Configure other pins as OUTPUT
                 GPIO.setup(pin, GPIO.OUT)
@@ -447,9 +443,9 @@ class GPIOConfiguratorApp:
             self.canvas.itemconfig(self.indicators["nav_tail"],
                                    fill="white" if self.get_pin_state(TAIL_NAV_PIN) == 0 else "gray")
 
-            # Handle mic pin if in hardware mode
+            # Handle mic pin if in hardware mode (only if both mic control and analog module are configured)
             if not SIMULATED_MODE and self.mic_check_running:
-                if is_function_configured(config_data, "Mic Control"):
+                if is_mic_and_analog_configured(config_data):
                     # Check physical microphone pin state
                     pin_state = GPIO.input(MIC_CONTROL_PIN)
                     if pin_state == 0 and not self.keyed_up:  # Grounded, activate
@@ -521,9 +517,9 @@ class GPIOConfiguratorApp:
 
                         i2c = busio.I2C(board.SCL, board.SDA)
                         ads = ADS.ADS1115(i2c)
-                        pot_channel = AnalogIn(ads, ADS.P0)  # Potentiometer
-                        temp_channel = AnalogIn(ads, ADS.P1)  # Temperature
-                        aux_channel = AnalogIn(ads, ADS.P2)  # Auxiliary input
+                                            pot_channel = AnalogIn(ads, getattr(ADS, f'P{ADS_POT_CHANNEL}'))      # Potentiometer on P0
+                    temp_channel = AnalogIn(ads, getattr(ADS, f'P{ADS_TEMP_CHANNEL}'))    # Temperature on P1
+                    aux_channel = AnalogIn(ads, getattr(ADS, f'P{ADS_SIGNAL_CHANNEL}'))   # Signal Quality on P2  # Auxiliary input
 
                         while self.analog_monitoring:
                             # Read potentiometer
@@ -666,7 +662,7 @@ class GPIOConfiguratorApp:
             logger.error(f"Logo image error: {e}")
             self.tkLabel(main_frame, text="[LOGO MISSING]", fg="red", bg="#1e1e2e", font=("Arial", 18)).pack()
 
-        self.tkLabel(main_frame, text="By Kyle Reed & Casey Hall V3.0", font=("Arial", 10), fg="cyan", bg="#1e1e2e").pack(pady=(0, 5))
+        self.tkLabel(main_frame, text=f"Created by Kyle Reed & Casey Hall {get_app_version()}", font=("Arial", 10), fg="cyan", bg="#1e1e2e").pack(pady=(0, 5))
 
         content_frame = self.Frame(main_frame, bg="#1e1e2e", width=800, height=340)
         content_frame.pack_propagate(False)

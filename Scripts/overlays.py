@@ -70,6 +70,16 @@ def animate_no_config(self):
         if hasattr(self, "no_audio_label") and self.no_audio_label.winfo_ismapped():
             self.no_audio_label.config(fg=hex_color)
 
+        # === Animate individual gauge labels ===
+        if hasattr(self, "no_pot_label") and self.no_pot_label.winfo_ismapped():
+            self.no_pot_label.config(fg=hex_color)
+            
+        if hasattr(self, "no_temp_label") and self.no_temp_label.winfo_ismapped():
+            self.no_temp_label.config(fg=hex_color)
+            
+        if hasattr(self, "no_aux_label") and self.no_aux_label.winfo_ismapped():
+            self.no_aux_label.config(fg=hex_color)
+
         # Schedule next pulse
         if hasattr(self, 'root') and self.root.winfo_exists():
             self.root.after(100, self.animate_no_config)

@@ -8,8 +8,8 @@ import math
 import time
 import threading
 from gpio_handler import initialize_gpio, cleanup_gpio, SIMULATED_MODE, GPIO, PIN_STATES
-from config_manager import load_config, save_config, config_data
-from utils import is_function_configured, toggle_gpio_state
+from config_manager import load_config, save_config, config_data, clear_config_on_startup
+from utils import is_function_configured, is_mic_and_analog_configured, toggle_gpio_state, get_app_version
 from constants import *
 try:
     from PIL import Image, ImageTk
@@ -47,8 +47,62 @@ def load_gpio_controls(self):
 def create_gpio_control(self, pin, function):
     """Create a GPIO control UI element"""
     try:
+        # Special handling for Analog Input Module (uses I2C pins 2,3)
+        if function == "Analog Input Module":
+            logger.info(f"Creating control for {function} (I2C pins 2&3)")
+            
+            # No GPIO setup needed - I2C is handled automatically by ADS1115 library
+            # Just create the UI element
+            
+            # Create the UI element
+            outer_frame = self.Frame(self.main_frame)
+            outer_frame.pack(fill=tk.X, expand=True, padx=5, pady=5)
+
+            if BOOTSTRAP_AVAILABLE:
+                frame = self.Frame(outer_frame, padx=8, pady=8, relief="ridge")
+                frame.pack(fill=tk.X, expand=True)
+            else:
+                frame = self.Frame(outer_frame, relief="ridge")
+                frame.pack(fill=tk.X, expand=True, padx=8, pady=8)
+
+            frame.grid_columnconfigure(0, weight=1)
+            frame.grid_columnconfigure(1, weight=0)
+
+            btn = self.Button(frame, text=f"{function} (I2C)",
+                             command=lambda: toggle_gpio_state(pin, btn, status_label, function, self),
+                             style="success.TButton")
+            btn.grid(row=0, column=0, padx=5, pady=5, sticky="w")
+
+            delete_btn = self.Button(frame, text="Delete",
+                                    command=lambda: self.delete_gpio(pin),
+                                    style="danger.TButton")
+            delete_btn.grid(row=0, column=1, padx=5, pady=5, sticky="e")
+
+            status_label = self.Label(frame, text="Status: I2C Active | Monitoring: Ready",
+                                     style="info.TLabel", anchor="center", justify="center")
+            status_label.grid(row=1, column=0, columnspan=2, padx=5, sticky="nsew")
+
+            # Start analog monitoring for gauges
+            logger.info("Analog Input Module configured - starting analog monitoring")
+            self.start_analog_monitoring()
+            
+            # Force update of the canvas
+            if hasattr(self, 'main_canvas'):
+                self.main_canvas.update_idletasks()
+                self.main_canvas.configure(scrollregion=self.main_canvas.bbox("all"))
+            
+            return  # Exit early for Analog Input Module
+        
+        # Regular pin processing for other functions
         pin = int(pin)
         logger.info(f"Creating control for {function} on pin {pin}")
+
+        # First, ensure the pin is in a clean state
+        if not SIMULATED_MODE:
+            try:
+                GPIO.cleanup(pin)
+            except:
+                pass  # Ignore cleanup errors for pins that weren't set up
 
         # Configure the GPIO pin - SPECIAL HANDLING FOR MIC CONTROL
         if function == "Mic Control" and int(pin) == MIC_CONTROL_PIN:
@@ -60,9 +114,6 @@ def create_gpio_control(self, pin, function):
             # Keep these pins as INPUT with pull-up
             GPIO.setup(pin, GPIO.IN, pull_up_down=GPIO.PUD_UP)
             logger.info(f"Configured {function} pin {pin} as INPUT with pull-up")
-        elif function == "Potentiometer Control":
-            logger.info("Potentiometer control configured - starting analog monitoring")
-            self.start_analog_monitoring()
         else:
             # Configure other pins as OUTPUT
             GPIO.setup(pin, GPIO.OUT)
@@ -75,7 +126,7 @@ def create_gpio_control(self, pin, function):
         outer_frame.pack(fill=tk.X, expand=True, padx=5, pady=5)
 
         if BOOTSTRAP_AVAILABLE:
-            frame = self.Frame(outer_frame, padding=8, relief="ridge")
+            frame = self.Frame(outer_frame, padx=8, pady=8, relief="ridge")
             frame.pack(fill=tk.X, expand=True)
         else:
             frame = self.Frame(outer_frame, relief="ridge")
@@ -105,6 +156,12 @@ def create_gpio_control(self, pin, function):
             # Start checking mic pin if on real hardware
             if not SIMULATED_MODE:
                 self.start_mic_check()
+
+        # Force update of the canvas
+        if hasattr(self, 'main_canvas'):
+            self.main_canvas.update_idletasks()
+            self.main_canvas.configure(scrollregion=self.main_canvas.bbox("all"))
+
     except Exception as e:
         logger.error(f"Error creating GPIO control for pin {pin}: {e}")
         logger.error(traceback.format_exc())
@@ -185,9 +242,15 @@ def create_gauge(self, parent, x, y, label, color):
         gauge_frame = self.Frame(parent, bg='#1e1e2e')
         gauge_frame.place(x=x, y=y)
         
-        # Create label with theme colors and bold font
-        self.Label(gauge_frame, text=label, font=("Arial", 10, "bold"), 
-                  foreground=color, background='#1e1e2e').pack()
+        # Create main label with theme colors and bold font
+        main_label = self.Label(gauge_frame, text=label, font=("Arial", 10, "bold"), 
+                               foreground=color, background='#1e1e2e')
+        main_label.pack()
+        
+        # Create real-time value display next to the main label
+        realtime_label = self.Label(gauge_frame, text="--", font=("Arial", 8), 
+                                   foreground="white", background='#1e1e2e')
+        realtime_label.pack()
         
         # Create canvas for gauge with transparent background
         canvas = self.Canvas(gauge_frame, width=100, height=100, bg='#1e1e2e', highlightthickness=0)
@@ -196,10 +259,13 @@ def create_gauge(self, parent, x, y, label, color):
         # Draw gauge background with a darker shade
         canvas.create_arc(10, 10, 90, 90, start=0, extent=180, fill='#2a2a3c', outline='#3a3a4c')
         
-        # Draw gauge needle (initially at 0)
-        needle = canvas.create_line(50, 50, 50, 20, fill=color, width=2)
+        # Draw gauge needle (initially at full left - 0 degrees)
+        start_angle = math.radians(180)  # Start at full left
+        start_x = 50 + (30 * math.cos(start_angle))
+        start_y = 50 - (30 * math.sin(start_angle))
+        needle = canvas.create_line(50, 50, start_x, start_y, fill=color, width=2)
         
-        # Create value label with matching theme and bold font
+        # Create percentage label with matching theme and bold font
         value_label = self.Label(gauge_frame, text="0%", font=("Arial", 12, "bold"), 
                                foreground=color, background='#1e1e2e')
         value_label.pack()
@@ -208,6 +274,7 @@ def create_gauge(self, parent, x, y, label, color):
             'canvas': canvas,
             'needle': needle,
             'value_label': value_label,
+            'realtime_label': realtime_label,
             'center_x': 50,
             'center_y': 50,
             'radius': 30
@@ -295,6 +362,10 @@ def setup_control_panel(self, parent):
 
         # Initialize status overlays
         self.create_status_overlays()
+        
+        # Create gauge overlays (without changing existing layout)
+        self.create_gauge_overlays(control_panel)
+        
         self.update_overlay_status()
 
         # Start indicator update loop
@@ -340,7 +411,7 @@ def setup_gui(self):
         logger.error(f"Logo image error: {e}")
         self.tkLabel(main_frame, text="[LOGO MISSING]", fg="red", bg="#1e1e2e", font=("Arial", 18)).pack()
 
-    self.tkLabel(main_frame, text="By Kyle Reed & Casey Hall V3.0", font=("Arial", 10), fg="cyan", bg="#1e1e2e").pack(pady=(0, 5))
+    self.tkLabel(main_frame, text=f"Created by Kyle Reed & Casey Hall {get_app_version()}", font=("Arial", 10), fg="cyan", bg="#1e1e2e").pack(pady=(0, 5))
 
     content_frame = self.Frame(main_frame, bg="#1e1e2e", width=800, height=340)
     content_frame.pack_propagate(False)
@@ -356,11 +427,11 @@ def update_overlay_status(self):
         values = list(config_data.values())
         has_landing_gear = any(val == "Landing Gear Control" for val in values)
         has_nav_lights = any(val == "Nav Light Toggle" for val in values)
-        has_signal = any(val == "Coax Signal" for val in values)
+        has_analog_module = any(val == "Analog Input Module" for val in values)
         has_mic = any(val == "Mic Control" for val in values)
 
         logger.debug(
-            f"Status: Landing Gear={has_landing_gear}, Nav Lights={has_nav_lights}, Signal={has_signal}, Mic={has_mic}"
+            f"Status: Landing Gear={has_landing_gear}, Nav Lights={has_nav_lights}, Analog Module={has_analog_module}, Mic={has_mic}"
         )
 
         # === Handle center overlay (airplane image) ===
@@ -375,15 +446,50 @@ def update_overlay_status(self):
             for indicator in self.indicators.values():
                 self.canvas.itemconfig(indicator, state="hidden")
 
-        # === Handle signal status ===
-        if not has_signal:
-            self.no_signal_label.place(x=600, y=365, anchor="center")
+        # === Handle individual gauge overlays ===
+        if has_analog_module:
+            # Hide all gauge overlays when analog module is configured
+            if hasattr(self, 'no_pot_label'):
+                self.no_pot_label.place_forget()
+            if hasattr(self, 'no_temp_label'):
+                self.no_temp_label.place_forget()
+            if hasattr(self, 'no_aux_label'):
+                self.no_aux_label.place_forget()
+            # Trigger gauge animation when first configured
+            if not hasattr(self, '_gauge_animation_triggered'):
+                self._gauge_animation_triggered = True
+                # Stop any existing monitoring during animation
+                if hasattr(self, 'analog_monitoring'):
+                    self.stop_analog_monitoring()
+                self.root.after(200, self.gauge_startup_animation)
+        else:
+            # Show individual gauge overlays when analog module is not configured
+            if hasattr(self, 'no_pot_label'):
+                self.no_pot_label.place(x=250, y=100, anchor="center")
+            if hasattr(self, 'no_temp_label'):
+                self.no_temp_label.place(x=250, y=190, anchor="center")
+            if hasattr(self, 'no_aux_label'):
+                self.no_aux_label.place(x=250, y=280, anchor="center")
+            # Reset animation trigger flag when module is removed
+            if hasattr(self, '_gauge_animation_triggered'):
+                delattr(self, '_gauge_animation_triggered')
+            # Stop analog monitoring when module is removed
+            if hasattr(self, 'analog_monitoring'):
+                self.stop_analog_monitoring()
+
+        # === Handle signal status (position over signal quality meter) ===
+        if not has_analog_module:
+            self.no_signal_label.place(x=600, y=365, anchor="center")  # Over signal quality meter (x=20, y=220, length=160)
+            self.signal_quality_label.config(text="Signal Quality: N/A")
+            self.signal_quality_meter["value"] = 0
         else:
             self.no_signal_label.place_forget()
 
-        # === Handle mic status ===
-        if not has_mic:
-            self.no_audio_label.place(x=600, y=405, anchor="center")
+        # === Handle mic status (position over audio meter) ===
+        # Only show mic signal when BOTH Mic Control AND Analog Input Module are configured
+        if not (has_mic and has_analog_module):
+            self.no_audio_label.place(x=600, y=400, anchor="center")  # Over audio meter (x=20, y=260, length=160)
+            self.audio_level.set(0)
         else:
             self.no_audio_label.place_forget()
 
@@ -429,21 +535,21 @@ def update_indicators(self):
 
             # Update left nav
             if left_nav:
-                self.canvas.itemconfig(self.indicators["left_nav"], fill="yellow")
+                self.canvas.itemconfig(self.indicators["nav_left"], fill="yellow")
             else:
-                self.canvas.itemconfig(self.indicators["left_nav"], fill="gray")
+                self.canvas.itemconfig(self.indicators["nav_left"], fill="gray")
 
             # Update right nav
             if right_nav:
-                self.canvas.itemconfig(self.indicators["right_nav"], fill="yellow")
+                self.canvas.itemconfig(self.indicators["nav_right"], fill="yellow")
             else:
-                self.canvas.itemconfig(self.indicators["right_nav"], fill="gray")
+                self.canvas.itemconfig(self.indicators["nav_right"], fill="gray")
 
             # Update tail nav
             if tail_nav:
-                self.canvas.itemconfig(self.indicators["tail_nav"], fill="yellow")
+                self.canvas.itemconfig(self.indicators["nav_tail"], fill="yellow")
             else:
-                self.canvas.itemconfig(self.indicators["tail_nav"], fill="gray")
+                self.canvas.itemconfig(self.indicators["nav_tail"], fill="gray")
 
         # Schedule next update
         self.root.after(200, self.update_indicators)
@@ -479,7 +585,7 @@ def toggle_sim_pin(self, pin):
 def simulate_signal_quality(self, voltage):
     """Simulate signal quality based on voltage"""
     try:
-        if is_function_configured(config_data, "Coax Signal"):
+        if is_function_configured(config_data, "Analog Input Module"):
             percent = min(max(int((voltage / 3.3) * 100), 0), 100)
             logger.debug(f"Signal quality simulated at {percent}%")
             self.signal_quality_label.config(text=f"Signal Quality: {percent}%")
@@ -489,37 +595,54 @@ def simulate_signal_quality(self, voltage):
 
 
 def update_pot_value(self, value):
-    """Update potentiometer gauge value"""
+    """Update potentiometer gauge value - convert to resistance"""
     try:
         if hasattr(self, 'pot_gauge'):
-            # Update needle position
-            angle = (value / 100) * 180  # Convert percentage to angle
+            # Convert 0-100% to 0-10k ohms resistance
+            resistance = int((value / 100) * 10000)
+            
+            # Update needle position (180 degrees = full left, 0 degrees = full right)
+            angle = 180 - (value / 100) * 180  # Reverse the angle so 0% = left, 100% = right
             rad = math.radians(angle)
             x = self.pot_gauge['center_x'] + (self.pot_gauge['radius'] * math.cos(rad))
             y = self.pot_gauge['center_y'] - (self.pot_gauge['radius'] * math.sin(rad))
             self.pot_gauge['canvas'].coords(self.pot_gauge['needle'],
                                           self.pot_gauge['center_x'], self.pot_gauge['center_y'],
                                           x, y)
-            # Update value label
+            
+            # Update percentage label
             self.pot_gauge['value_label'].config(text=f"{int(value)}%")
+            
+            # Update real-time resistance display
+            if resistance >= 1000:
+                self.pot_gauge['realtime_label'].config(text=f"{resistance/1000:.1f}kΩ")
+            else:
+                self.pot_gauge['realtime_label'].config(text=f"{resistance}Ω")
     except Exception as e:
         logger.error(f"Error updating pot value: {e}")
 
 
 def update_temp_value(self, value):
-    """Update temperature gauge value"""
+    """Update temperature gauge value - convert to Celsius"""
     try:
         if hasattr(self, 'temp_gauge'):
-            # Update needle position
-            angle = (value / 100) * 180  # Convert percentage to angle
+            # Convert 0-100% to 0°C to 100°C temperature range
+            temperature = (value / 100) * 100  # 0°C to 100°C range
+            
+            # Update needle position (180 degrees = full left, 0 degrees = full right)
+            angle = 180 - (value / 100) * 180  # Reverse the angle so 0% = left, 100% = right
             rad = math.radians(angle)
             x = self.temp_gauge['center_x'] + (self.temp_gauge['radius'] * math.cos(rad))
             y = self.temp_gauge['center_y'] - (self.temp_gauge['radius'] * math.sin(rad))
             self.temp_gauge['canvas'].coords(self.temp_gauge['needle'],
                                            self.temp_gauge['center_x'], self.temp_gauge['center_y'],
                                            x, y)
-            # Update value label
+            
+            # Update percentage label
             self.temp_gauge['value_label'].config(text=f"{int(value)}%")
+            
+            # Update real-time temperature display
+            self.temp_gauge['realtime_label'].config(text=f"{temperature:.1f}°C")
     except Exception as e:
         logger.error(f"Error updating temp value: {e}")
 
@@ -528,16 +651,21 @@ def update_aux_value(self, value):
     """Update auxiliary gauge value"""
     try:
         if hasattr(self, 'extra_gauge'):
-            # Update needle position
-            angle = (value / 100) * 180  # Convert percentage to angle
+            # Update needle position (180 degrees = full left, 0 degrees = full right)
+            angle = 180 - (value / 100) * 180  # Reverse the angle so 0% = left, 100% = right
             rad = math.radians(angle)
             x = self.extra_gauge['center_x'] + (self.extra_gauge['radius'] * math.cos(rad))
             y = self.extra_gauge['center_y'] - (self.extra_gauge['radius'] * math.sin(rad))
             self.extra_gauge['canvas'].coords(self.extra_gauge['needle'],
                                           self.extra_gauge['center_x'], self.extra_gauge['center_y'],
                                           x, y)
-            # Update value label
+            
+            # Update percentage label
             self.extra_gauge['value_label'].config(text=f"{int(value)}%")
+            
+            # Update real-time auxiliary display (just percentage for AUX)
+            if hasattr(self.extra_gauge, 'realtime_label'):
+                self.extra_gauge['realtime_label'].config(text=f"{int(value)}%")
     except Exception as e:
         logger.error(f"Error updating aux value: {e}")
 
@@ -548,6 +676,8 @@ def start_analog_monitoring(self):
         return  # Already running
 
     self.analog_monitoring = True
+    # Add simulation enable flag for better control
+    self.simulation_enabled = getattr(self, 'simulation_enabled', False)
 
     def analog_monitor_thread():
         try:
@@ -566,23 +696,43 @@ def start_analog_monitoring(self):
 
                     i2c = busio.I2C(board.SCL, board.SDA)
                     ads = ADS.ADS1115(i2c)
-                    pot_channel = AnalogIn(ads, ADS.P0)  # Potentiometer
-                    temp_channel = AnalogIn(ads, ADS.P1)  # Temperature
-                    aux_channel = AnalogIn(ads, ADS.P2)
+                    pot_channel = AnalogIn(ads, getattr(ADS, f'P{ADS_POT_CHANNEL}'))      # Potentiometer on P0
+                    temp_channel = AnalogIn(ads, getattr(ADS, f'P{ADS_TEMP_CHANNEL}'))    # Temperature on P1
+                    aux_channel = AnalogIn(ads, getattr(ADS, f'P{ADS_SIGNAL_CHANNEL}'))   # Signal Quality on P2
 
                     while self.analog_monitoring:
-                        # Read potentiometer
+                        # Read potentiometer (0-3.3V maps to 0-100%)
                         pot_raw = pot_channel.value
                         pot_pct = (pot_raw / 65535) * 100
                         smoothed_pot = (pot_pct * 0.2) + (smoothed_pot * 0.8)
 
-                        # Read temperature
+                        # Read temperature from 10K thermistor (voltage divider circuit)
                         temp_raw = temp_channel.value
-                        # Convert to percentage for display (adjust as needed)
-                        temp_pct = ((temp_raw / 65535) * 100)
+                        temp_voltage = (temp_raw / 65535) * 3.3
+                        
+                        # Calculate resistance of thermistor (assuming voltage divider with 10K fixed resistor)
+                        # V_out = V_cc * R_thermistor / (R_fixed + R_thermistor)
+                        # R_thermistor = R_fixed * V_out / (V_cc - V_out)
+                        if temp_voltage < 3.2:  # Avoid division by very small numbers
+                            r_fixed = 10000  # 10K fixed resistor
+                            r_thermistor = r_fixed * temp_voltage / (3.3 - temp_voltage)
+                            
+                            # Convert resistance to temperature using Steinhart-Hart equation (simplified)
+                            # For typical 10K thermistor: Beta = ~3950K, R0 = 10K at 25°C
+                            import math
+                            try:
+                                temp_k = 1 / (1/298.15 + (1/3950) * math.log(r_thermistor/10000))
+                                temp_celsius = temp_k - 273.15
+                            except (ValueError, ZeroDivisionError):
+                                temp_celsius = 25  # Default to room temperature on error
+                        else:
+                            temp_celsius = 25  # Default if voltage too high
+                        
+                        # Scale to 0-100% for gauge display (0°C = 0%, 100°C = 100%)
+                        temp_pct = min(max((temp_celsius / 100) * 100, 0), 100)
                         smoothed_temp = (temp_pct * 0.2) + (smoothed_temp * 0.8)
 
-                        # Read auxiliary
+                        # Read auxiliary (keep as percentage)
                         aux_raw = aux_channel.value
                         aux_pct = (aux_raw / 65535) * 100
                         smoothed_aux = (aux_pct * 0.2) + (smoothed_aux * 0.8)
@@ -597,27 +747,38 @@ def start_analog_monitoring(self):
                 except Exception as e:
                     logger.error(f"Error in analog monitoring: {e}")
             else:
-                # Simulation mode - create varying values
-                sim_values = [0, 25, 50]  # Starting values
-                sim_dirs = [1, 1, 1]  # Direction (increasing/decreasing)
+                # Simulation mode - keep needles at zero unless simulation is enabled
+                if not self.simulation_enabled:
+                    # Stay at zero when no input
+                    idle_values = [0, 0, 0]
+                    while self.analog_monitoring:
+                        # Update gauges with idle values (zero)
+                        self.root.after(0, lambda: self.update_pot_value(idle_values[0]))
+                        self.root.after(0, lambda: self.update_temp_value(idle_values[1]))
+                        self.root.after(0, lambda: self.update_aux_value(idle_values[2]))
+                        time.sleep(0.1)
+                else:
+                    # Original simulation with moving values
+                    sim_values = [0, 25, 50]  # Starting values
+                    sim_dirs = [1, 1, 1]  # Direction (increasing/decreasing)
 
-                while self.analog_monitoring:
-                    # Update simulation values
-                    for i in range(3):
-                        sim_values[i] += sim_dirs[i] * (i + 1)  # Different speeds
-                        if sim_values[i] >= 100:
-                            sim_values[i] = 100
-                            sim_dirs[i] = -1
-                        elif sim_values[i] <= 0:
-                            sim_values[i] = 0
-                            sim_dirs[i] = 1
+                    while self.analog_monitoring:
+                        # Update simulation values
+                        for i in range(3):
+                            sim_values[i] += sim_dirs[i] * (i + 1)  # Different speeds
+                            if sim_values[i] >= 100:
+                                sim_values[i] = 100
+                                sim_dirs[i] = -1
+                            elif sim_values[i] <= 0:
+                                sim_values[i] = 0
+                                sim_dirs[i] = 1
 
-                    # Update gauges with simulated values
-                    self.root.after(0, lambda: self.update_pot_value(sim_values[0]))
-                    self.root.after(0, lambda: self.update_temp_value(sim_values[1]))
-                    self.root.after(0, lambda: self.update_aux_value(sim_values[2]))
+                        # Update gauges with simulated values
+                        self.root.after(0, lambda: self.update_pot_value(sim_values[0]))
+                        self.root.after(0, lambda: self.update_temp_value(sim_values[1]))
+                        self.root.after(0, lambda: self.update_aux_value(sim_values[2]))
 
-                    time.sleep(0.1)
+                        time.sleep(0.1)
 
         except Exception as e:
             logger.error(f"Error in analog monitoring thread: {e}")
@@ -631,3 +792,163 @@ def start_analog_monitoring(self):
 def stop_analog_monitoring(self):
     """Stop analog monitoring"""
     self.analog_monitoring = False
+
+
+def toggle_simulation_mode(self):
+    """Toggle simulation mode for analog needles"""
+    try:
+        self.simulation_enabled = not getattr(self, 'simulation_enabled', False)
+        status = "enabled" if self.simulation_enabled else "disabled"
+        logger.info(f"Simulation mode {status}")
+        
+        # Show a temporary status message to the user
+        if hasattr(self, 'root'):
+            messagebox.showinfo("Simulation Mode", 
+                              f"Analog simulation {status}.\n"
+                              f"{'Needles will now move automatically' if self.simulation_enabled else 'Needles will stay at zero unless there is real input'}")
+        
+        # If simulation is disabled, immediately set all needles to zero
+        if not self.simulation_enabled:
+            if hasattr(self, 'pot_gauge') and self.pot_gauge:
+                self.update_pot_value(0)
+            if hasattr(self, 'temp_gauge') and self.temp_gauge:
+                self.update_temp_value(0)
+            if hasattr(self, 'extra_gauge') and self.extra_gauge:
+                self.update_aux_value(0)
+        
+        return self.simulation_enabled
+    except Exception as e:
+        logger.error(f"Error toggling simulation mode: {e}")
+        return False
+
+
+def gauge_startup_animation(self):
+    """Fancy startup animation for all gauges - sweeps needles like car dashboard"""
+    try:
+        logger.info("Starting gauge startup animation")
+        
+        # Animation parameters
+        animation_steps = 50  # Number of steps in animation
+        sweep_delay = 30      # Milliseconds between steps
+        settle_delay = 1000   # Wait time before settling back to idle
+        
+        def animate_step(step):
+            try:
+                # Calculate sweep position (0 to 100 and back to 0)
+                if step <= animation_steps // 2:
+                    # Sweep from 0% to 100%
+                    progress = (step / (animation_steps // 2)) * 100
+                else:
+                    # Sweep from 100% back to 0%
+                    progress = ((animation_steps - step) / (animation_steps // 2)) * 100
+                
+                # Update all three gauges
+                if hasattr(self, 'pot_gauge') and self.pot_gauge:
+                    # POT gauge - animate needle
+                    angle = 180 - (progress / 100) * 180
+                    rad = math.radians(angle)
+                    x = self.pot_gauge['center_x'] + (self.pot_gauge['radius'] * math.cos(rad))
+                    y = self.pot_gauge['center_y'] - (self.pot_gauge['radius'] * math.sin(rad))
+                    self.pot_gauge['canvas'].coords(self.pot_gauge['needle'],
+                                                  self.pot_gauge['center_x'], self.pot_gauge['center_y'],
+                                                  x, y)
+                    # Update labels during animation
+                    resistance = int((progress / 100) * 10000)
+                    self.pot_gauge['value_label'].config(text=f"{int(progress)}%")
+                    if resistance >= 1000:
+                        self.pot_gauge['realtime_label'].config(text=f"{resistance/1000:.1f}kΩ")
+                    else:
+                        self.pot_gauge['realtime_label'].config(text=f"{resistance}Ω")
+                
+                if hasattr(self, 'temp_gauge') and self.temp_gauge:
+                    # TEMP gauge - animate needle
+                    angle = 180 - (progress / 100) * 180
+                    rad = math.radians(angle)
+                    x = self.temp_gauge['center_x'] + (self.temp_gauge['radius'] * math.cos(rad))
+                    y = self.temp_gauge['center_y'] - (self.temp_gauge['radius'] * math.sin(rad))
+                    self.temp_gauge['canvas'].coords(self.temp_gauge['needle'],
+                                                   self.temp_gauge['center_x'], self.temp_gauge['center_y'],
+                                                   x, y)
+                    # Update labels during animation
+                    temperature = ((progress / 100) * 100) - 20
+                    self.temp_gauge['value_label'].config(text=f"{int(progress)}%")
+                    self.temp_gauge['realtime_label'].config(text=f"{temperature:.1f}°C")
+                
+                if hasattr(self, 'extra_gauge') and self.extra_gauge:
+                    # AUX gauge - animate needle
+                    angle = 180 - (progress / 100) * 180
+                    rad = math.radians(angle)
+                    x = self.extra_gauge['center_x'] + (self.extra_gauge['radius'] * math.cos(rad))
+                    y = self.extra_gauge['center_y'] - (self.extra_gauge['radius'] * math.sin(rad))
+                    self.extra_gauge['canvas'].coords(self.extra_gauge['needle'],
+                                                    self.extra_gauge['center_x'], self.extra_gauge['center_y'],
+                                                    x, y)
+                    # Update labels during animation
+                    self.extra_gauge['value_label'].config(text=f"{int(progress)}%")
+                    if hasattr(self.extra_gauge, 'realtime_label'):
+                        self.extra_gauge['realtime_label'].config(text=f"{int(progress)}%")
+                
+                # Continue animation or finish
+                if step < animation_steps:
+                    self.root.after(sweep_delay, lambda: animate_step(step + 1))
+                else:
+                    # Animation complete, settle to idle position after delay
+                    self.root.after(settle_delay, self.settle_gauges_to_idle)
+                    
+            except Exception as e:
+                logger.error(f"Error in animation step {step}: {e}")
+        
+        # Start the animation
+        animate_step(0)
+        
+    except Exception as e:
+        logger.error(f"Error starting gauge animation: {e}")
+
+
+def settle_gauges_to_idle(self):
+    """Settle all gauges to their idle position (0%)"""
+    try:
+        logger.info("Settling gauges to idle position")
+        
+        # Set all gauges to 0% (idle position)
+        if hasattr(self, 'pot_gauge') and self.pot_gauge:
+            self.update_pot_value(0)
+        
+        if hasattr(self, 'temp_gauge') and self.temp_gauge:
+            self.update_temp_value(0)
+            
+        if hasattr(self, 'extra_gauge') and self.extra_gauge:
+            self.update_aux_value(0)
+            
+        logger.info("Gauge startup animation complete")
+        
+        # Restart analog monitoring after animation settles
+        self.root.after(500, self.start_analog_monitoring)
+        
+    except Exception as e:
+        logger.error(f"Error settling gauges to idle: {e}")
+
+
+def create_gauge_overlays(self, parent):
+    """Create individual overlay elements for each gauge (like mic/coax pattern)"""
+    try:
+        # Create individual NO CONFIG labels for each gauge positioned exactly over them
+        # POT gauge overlay (x=200, y=50)
+        self.no_pot_label = self.tkLabel(parent, text="NO CONFIG", fg="yellow", bg="#1e1e2e",
+                                        font=("Arial", 10, "bold"))
+        self.no_pot_label.place(x=250, y=100, anchor="center")  # Center over POT gauge
+        
+        # TEMP gauge overlay (x=200, y=140) 
+        self.no_temp_label = self.tkLabel(parent, text="NO CONFIG", fg="yellow", bg="#1e1e2e",
+                                         font=("Arial", 10, "bold"))
+        self.no_temp_label.place(x=600, y=190, anchor="center")  # Center over TEMP gauge
+        
+        # AUX gauge overlay (x=200, y=230)
+        self.no_aux_label = self.tkLabel(parent, text="NO CONFIG", fg="yellow", bg="#1e1e2e",
+                                        font=("Arial", 10, "bold"))
+        self.no_aux_label.place(x=600, y=280, anchor="center")  # Center over AUX gauge
+        
+        logger.debug("Individual gauge overlays created")
+        
+    except Exception as e:
+        logger.error(f"Error creating gauge overlays: {e}")
