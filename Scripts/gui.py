@@ -635,7 +635,8 @@ class GPIOConfiguratorApp:
         script_dir = os.path.dirname(os.path.abspath(__file__))
         logger.debug(f"Script directory: {script_dir}")
 
-        main_frame = self.Frame(self.root, width=800, height=480, bg="#1e1e2e")
+        # Use tk.Frame when we need background color, as TTK frames don't support bg option
+        main_frame = tk.Frame(self.root, width=800, height=480, bg="#1e1e2e")
         main_frame.pack_propagate(False)
         main_frame.pack()
 
@@ -664,7 +665,8 @@ class GPIOConfiguratorApp:
 
         self.tkLabel(main_frame, text=f"Created by Kyle Reed & Casey Hall {get_app_version()}", font=("Arial", 10), fg="cyan", bg="#1e1e2e").pack(pady=(0, 5))
 
-        content_frame = self.Frame(main_frame, bg="#1e1e2e", width=800, height=340)
+        # Use tk.Frame when we need background color, as TTK frames don't support bg option
+        content_frame = tk.Frame(main_frame, bg="#1e1e2e", width=800, height=340)
         content_frame.pack_propagate(False)
         content_frame.pack(fill=tk.X)
 

@@ -36,7 +36,8 @@ def open_config_window(self):
         center_window(self.config_window)
 
         # Create a main frame with padding
-        main_frame = self.Frame(self.config_window, bg="#1e1e2e", padx=20, pady=20)
+        # Use tk.Frame when we need background color, as TTK frames don't support bg option
+        main_frame = tk.Frame(self.config_window, bg="#1e1e2e", padx=20, pady=20)
         main_frame.pack(fill=tk.BOTH, expand=True)
 
         # Define available pins (excluding the monitoring pins)
@@ -179,7 +180,8 @@ def open_config_window(self):
             self.config_window.destroy()
 
         # Buttons with larger, more touch-friendly size
-        button_frame = self.Frame(main_frame, bg="#1e1e2e")
+        # Use tk.Frame when we need background color, as TTK frames don't support bg option
+        button_frame = tk.Frame(main_frame, bg="#1e1e2e")
         button_frame.pack(fill=tk.X, pady=(20, 0))
 
         save_button = self.Button(

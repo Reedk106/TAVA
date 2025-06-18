@@ -239,7 +239,8 @@ def create_gauge(self, parent, x, y, label, color):
     """Create a gauge with label and value display"""
     try:
         # Create frame for gauge with transparent background
-        gauge_frame = self.Frame(parent, bg='#1e1e2e')
+        # Use tk.Frame when we need background color, as TTK frames don't support bg option
+        gauge_frame = tk.Frame(parent, bg='#1e1e2e')
         gauge_frame.place(x=x, y=y)
         
         # Create main label with theme colors and bold font
@@ -289,7 +290,8 @@ def setup_control_panel(self, parent):
     try:
         script_dir = os.path.dirname(os.path.abspath(__file__))
         # Increase width to 350 to accommodate all elements
-        control_panel = self.Frame(parent, width=350, height=340, bg="#1e1e2e")
+        # Use tk.Frame when we need background color, as TTK frames don't support bg option
+        control_panel = tk.Frame(parent, width=350, height=340, bg="#1e1e2e")
         control_panel.pack_propagate(False)
         control_panel.pack(side=tk.RIGHT)
 
@@ -384,7 +386,8 @@ def setup_gui(self):
     script_dir = os.path.dirname(os.path.abspath(__file__))
     logger.debug(f"Script directory: {script_dir}")
 
-    main_frame = self.Frame(self.root, width=800, height=480, bg="#1e1e2e")
+    # Use tk.Frame when we need background color, as TTK frames don't support bg option
+    main_frame = tk.Frame(self.root, width=800, height=480, bg="#1e1e2e")
     main_frame.pack_propagate(False)
     main_frame.pack()
 
@@ -413,7 +416,8 @@ def setup_gui(self):
 
     self.tkLabel(main_frame, text=f"Created by Kyle Reed & Casey Hall {get_app_version()}", font=("Arial", 10), fg="cyan", bg="#1e1e2e").pack(pady=(0, 5))
 
-    content_frame = self.Frame(main_frame, bg="#1e1e2e", width=800, height=340)
+    # Use tk.Frame when we need background color, as TTK frames don't support bg option
+    content_frame = tk.Frame(main_frame, bg="#1e1e2e", width=800, height=340)
     content_frame.pack_propagate(False)
     content_frame.pack(fill=tk.X)
 
