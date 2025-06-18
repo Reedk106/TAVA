@@ -25,6 +25,14 @@ from control_panel import (
 )
 from overlays import create_status_overlays, animate_no_config
 
+# Safe import of auto-updater (optional feature)
+try:
+    from auto_updater import initialize_auto_updater, get_update_status
+    AUTO_UPDATER_AVAILABLE = True
+except ImportError:
+    logger.warning("Auto-updater not available - skipping")
+    AUTO_UPDATER_AVAILABLE = False
+
 # Import ttkbootstrap with fallback
 try:
     import ttkbootstrap as tb
@@ -125,6 +133,16 @@ class GPIOConfiguratorApp:
         # Start pin monitoring for hardware mode
         if not SIMULATED_MODE:
             self.start_pin_monitoring()
+        
+        # Initialize auto-updater (safe, runs in background)
+        if AUTO_UPDATER_AVAILABLE:
+            try:
+                initialize_auto_updater()
+                logger.info("Auto-updater initialized for Reedk106/TAVA repository")
+            except Exception as e:
+                logger.error(f"Failed to initialize auto-updater: {e}")
+        else:
+            logger.info("Auto-updater not available - continuing without updates")
 
     def clear_all_configs(self):
         """Clear all GPIO configurations"""
