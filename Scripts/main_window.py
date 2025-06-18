@@ -293,6 +293,17 @@ class GPIOConfiguratorApp:
             logger.error(f"Error setting up key bindings: {e}")
             logger.error(traceback.format_exc())
 
+    def toggle_fullscreen(self, event=None):
+        """Toggle fullscreen mode"""
+        try:
+            self.fullscreen = not self.fullscreen
+            self.root.attributes("-fullscreen", self.fullscreen)
+            if not self.fullscreen:
+                self.root.geometry("800x480")
+            logger.info(f"Fullscreen toggled: {self.fullscreen}")
+        except Exception as e:
+            logger.error(f"Error toggling fullscreen: {e}")
+
     def key_down(self, event):
         """Handle key down event for mic control"""
         try:

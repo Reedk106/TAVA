@@ -59,8 +59,8 @@ def create_gpio_control(self, pin, function):
             outer_frame.pack(fill=tk.X, expand=True, padx=5, pady=5)
 
             if BOOTSTRAP_AVAILABLE:
-                frame = self.Frame(outer_frame, padx=8, pady=8, relief="ridge")
-                frame.pack(fill=tk.X, expand=True)
+                frame = self.Frame(outer_frame, relief="ridge")
+                frame.pack(fill=tk.X, expand=True, padx=8, pady=8)
             else:
                 frame = self.Frame(outer_frame, relief="ridge")
                 frame.pack(fill=tk.X, expand=True, padx=8, pady=8)
@@ -126,8 +126,8 @@ def create_gpio_control(self, pin, function):
         outer_frame.pack(fill=tk.X, expand=True, padx=5, pady=5)
 
         if BOOTSTRAP_AVAILABLE:
-            frame = self.Frame(outer_frame, padx=8, pady=8, relief="ridge")
-            frame.pack(fill=tk.X, expand=True)
+            frame = self.Frame(outer_frame, relief="ridge")
+            frame.pack(fill=tk.X, expand=True, padx=8, pady=8)
         else:
             frame = self.Frame(outer_frame, relief="ridge")
             frame.pack(fill=tk.X, expand=True, padx=8, pady=8)
