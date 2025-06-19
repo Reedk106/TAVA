@@ -30,7 +30,9 @@ logger = logging.getLogger("GPIO_Control")
 AUTO_UPDATES_ENABLED = True
 GITHUB_USER = "Reedk106"         # Your GitHub username
 REPO_NAME = "TAVA"              # Your repo name
-CHECK_INTERVAL_HOURS = 24       # How often to check for updates
+CHECK_INTERVAL_HOURS = 24       # How often to check for updates (after initial check)
+INITIAL_CHECK_DELAY_MINUTES = 1  # Check for updates 1 minute after boot
+PERIODIC_CHECKS_ENABLED = True   # Set to False to only check once at boot
 SHOW_NOTIFICATIONS = False      # Set to True for popup notifications
 
 class SafeAutoUpdater:
@@ -45,6 +47,8 @@ class SafeAutoUpdater:
         self.repo_name = REPO_NAME
         self.check_interval = CHECK_INTERVAL_HOURS
         self.show_notifications = SHOW_NOTIFICATIONS
+        self.periodic_checks = PERIODIC_CHECKS_ENABLED
+        self.initial_delay = INITIAL_CHECK_DELAY_MINUTES
         
         # URLs
         self.api_url = f"https://api.github.com/repos/{self.github_user}/{self.repo_name}/releases/latest"
@@ -222,22 +226,41 @@ class SafeAutoUpdater:
         def background_thread():
             logger.info("Auto-updater background thread started")
             
-            while AUTO_UPDATES_ENABLED and self.enabled:
-                try:
-                    # Check if it's time for an update check
-                    if self._should_check_now():
-                        logger.info("Performing scheduled update check...")
-                        self.check_for_updates(silent=True)
-                    
-                    # Sleep for 1 hour, but check enabled status frequently
-                    for _ in range(60):  # 60 minutes
-                        if not AUTO_UPDATES_ENABLED or not self.enabled:
-                            break
-                        time.sleep(60)  # 1 minute intervals
+            # Initial delay - wait 1 minute after boot before first check
+            initial_delay = INITIAL_CHECK_DELAY_MINUTES * 60
+            logger.info(f"Waiting {INITIAL_CHECK_DELAY_MINUTES} minute(s) before initial update check...")
+            
+            for i in range(initial_delay):
+                if not AUTO_UPDATES_ENABLED or not self.enabled:
+                    logger.info("Auto-updater disabled during initial delay")
+                    return
+                time.sleep(1)  # Check every second during delay
+            
+            # Perform initial update check
+            if AUTO_UPDATES_ENABLED and self.enabled:
+                logger.info("Performing initial update check after boot...")
+                self.check_for_updates(silent=True)
+            
+            # Continue with regular periodic checks (if enabled)
+            if PERIODIC_CHECKS_ENABLED:
+                while AUTO_UPDATES_ENABLED and self.enabled:
+                    try:
+                        # Check if it's time for a periodic update check
+                        if self._should_check_now():
+                            logger.info("Performing periodic update check...")
+                            self.check_for_updates(silent=True)
                         
-                except Exception as e:
-                    logger.error(f"Error in auto-updater background thread: {e}")
-                    time.sleep(3600)  # Sleep 1 hour on error
+                        # Sleep for 1 hour, but check enabled status frequently
+                        for _ in range(60):  # 60 minutes
+                            if not AUTO_UPDATES_ENABLED or not self.enabled:
+                                break
+                            time.sleep(60)  # 1 minute intervals
+                            
+                    except Exception as e:
+                        logger.error(f"Error in auto-updater background thread: {e}")
+                        time.sleep(3600)  # Sleep 1 hour on error
+            else:
+                logger.info("Periodic checks disabled - only initial boot check performed")
             
             logger.info("Auto-updater background thread stopped")
         

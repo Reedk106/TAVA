@@ -43,15 +43,49 @@ except ImportError:
 
 logger = logging.getLogger("GPIO_Control")
 
+# Kiosk Mode Configuration
+KIOSK_MODE_ENABLED = True       # Set to False to allow normal window operations
+
 class GPIOConfiguratorApp:
     def __init__(self, root):
         logger.info("Initializing application...")
         self.root = root
-        self.root.title("GPIO Control Panel")
-        self.root.geometry("800x480")
-        self.root.resizable(False, False)
+        
+        if KIOSK_MODE_ENABLED:
+            # Configure for kiosk mode - platform-specific approach
+            import platform
+            system = platform.system()
+            
+            if system == "Windows":
+                # Windows: Use fullscreen only (can't combine with overrideredirect)  
+                self.root.attributes("-fullscreen", True)
+                self.root.attributes("-topmost", True)  # Keep on top
+                # Disable Alt+F4 by intercepting WM_DELETE_WINDOW
+                logger.info("Kiosk mode: Windows fullscreen mode")
+            else:
+                # Linux/Pi: Use overrideredirect for complete kiosk mode
+                self.root.overrideredirect(True)  # Remove title bar
+                # Manually set to full screen size
+                self.root.geometry(f"{self.root.winfo_screenwidth()}x{self.root.winfo_screenheight()}+0+0")
+                logger.info("Kiosk mode: Linux override-redirect mode")
+            
+            self.fullscreen = True
+            
+            # Teacher escape sequence state
+            self.escape_sequence = []
+            self.escape_target = ['Escape', 'Escape', 'F12']  # Press ESC ESC F12 to close
+            
+            logger.info("Kiosk mode activated - students cannot close application")
+        else:
+            # Normal windowed mode
+            self.root.title("GPIO Control Panel")
+            self.root.geometry("800x480")
+            self.root.resizable(False, False)
+            self.fullscreen = False
+            
+            logger.info("Normal windowed mode - standard controls available")
+        
         self.root.configure(bg="#1e1e2e")
-        self.fullscreen = False
 
         # Set up simulation tracking (used regardless of actual platform)
         self.simulated_inputs = {pin: 1 for pin in MONITORING_PINS}
@@ -84,7 +118,7 @@ class GPIOConfiguratorApp:
         except Exception as e:
             logger.error(f"Error setting up style: {e}")
             logger.error(traceback.format_exc())
-            messagebox.showerror("Error", f"Error setting up style: {e}")
+            messagebox.showerror("Error", f"Error setting up style: {e}", parent=self.root)
 
         # Widget helpers
         self.Button = tb.Button if BOOTSTRAP_AVAILABLE else ttk.Button
@@ -147,7 +181,7 @@ class GPIOConfiguratorApp:
     def clear_all_configs(self):
         """Clear all GPIO configurations"""
         try:
-            if messagebox.askyesno("Confirm", "Are you sure you want to clear all GPIO configurations?"):
+            if messagebox.askyesno("Confirm", "Are you sure you want to clear all GPIO configurations?", parent=self.root):
                 logger.info("Manually clearing all GPIO configurations")
 
                 # Close config window if open
@@ -201,17 +235,17 @@ class GPIOConfiguratorApp:
                 logger.info("All configurations cleared manually - GUI refreshed")
                 
                 # Show confirmation
-                messagebox.showinfo("Cleared", "All configurations have been cleared!")
+                messagebox.showinfo("Cleared", "All configurations have been cleared!", parent=self.root)
                 
         except Exception as e:
             logger.error(f"Error clearing configurations: {e}")
             logger.error(traceback.format_exc())
-            messagebox.showerror("Error", f"Failed to clear configurations: {e}")
+            messagebox.showerror("Error", f"Failed to clear configurations: {e}", parent=self.root)
 
     def delete_gpio(self, pin):
         """Delete a GPIO configuration"""
         try:
-            if messagebox.askyesno("Confirm", f"Are you sure you want to delete the configuration for pin {pin}?"):
+            if messagebox.askyesno("Confirm", f"Are you sure you want to delete the configuration for pin {pin}?", parent=self.root):
                 logger.info(f"Deleting configuration for pin {pin}")
                 
                 # Remove from config
@@ -256,7 +290,7 @@ class GPIOConfiguratorApp:
         except Exception as e:
             logger.error(f"Error deleting GPIO configuration: {e}")
             logger.error(traceback.format_exc())
-            messagebox.showerror("Error", f"Failed to delete configuration: {e}")
+            messagebox.showerror("Error", f"Failed to delete configuration: {e}", parent=self.root)
 
     def setup_key_bindings(self):
         """Set up keyboard shortcuts for testing and manual control"""
@@ -283,26 +317,74 @@ class GPIOConfiguratorApp:
             # Toggle analog simulation mode (T key)
             self.root.bind("<KeyPress-t>", lambda e: self.toggle_simulation_mode())
 
-            # Fullscreen toggle
-            self.root.bind("<F11>", self.toggle_fullscreen)
+            # Teacher escape sequence (only in kiosk mode)
+            if KIOSK_MODE_ENABLED:
+                self.root.bind("<KeyPress>", self.handle_teacher_escape)
+                logger.info("Teacher escape sequence: ESC ESC F12")
+            else:
+                # Normal fullscreen toggle in windowed mode
+                self.root.bind("<F11>", self.toggle_fullscreen)
             self.root.focus_set()
 
-            logger.info("Key bindings set up")
+            logger.info("Key bindings set up - kiosk mode active")
 
         except Exception as e:
             logger.error(f"Error setting up key bindings: {e}")
             logger.error(traceback.format_exc())
 
-    def toggle_fullscreen(self, event=None):
-        """Toggle fullscreen mode"""
+    def handle_teacher_escape(self, event):
+        """Handle teacher escape sequence to close application (kiosk mode only)"""
+        if not KIOSK_MODE_ENABLED:
+            return  # Only work in kiosk mode
+            
         try:
-            self.fullscreen = not self.fullscreen
-            self.root.attributes("-fullscreen", self.fullscreen)
-            if not self.fullscreen:
-                self.root.geometry("800x480")
-            logger.info(f"Fullscreen toggled: {self.fullscreen}")
+            key = event.keysym
+            
+            # Add key to sequence
+            self.escape_sequence.append(key)
+            
+            # Keep only the last 3 keys
+            if len(self.escape_sequence) > 3:
+                self.escape_sequence = self.escape_sequence[-3:]
+            
+            # Check if escape sequence matches
+            if self.escape_sequence == self.escape_target:
+                logger.info("Teacher escape sequence detected - allowing application exit")
+                messagebox.showinfo("Teacher Mode", 
+                                  "🎓 Teacher Access Granted\n\n"
+                                  "Application will now close.\n"
+                                  "Students will not see this message normally.",
+                                  parent=self.root)
+                self.teacher_exit()
+            
+            # Reset sequence if wrong key pressed (except ESC and F12 which are part of sequence)
+            elif key not in ['Escape', 'F12']:
+                self.escape_sequence = []
+                
         except Exception as e:
-            logger.error(f"Error toggling fullscreen: {e}")
+            logger.error(f"Error in teacher escape handler: {e}")
+    
+    def teacher_exit(self):
+        """Clean shutdown for teacher access"""
+        try:
+            # Perform clean shutdown
+            self.stop_pin_monitoring()
+            if hasattr(self, 'stop_analog_monitoring'):
+                self.stop_analog_monitoring()
+            if hasattr(self, 'stop_audio_monitor'):
+                self.stop_audio_monitor()
+            cleanup_gpio()
+            self.root.destroy()
+        except Exception as e:
+            logger.error(f"Error during teacher exit: {e}")
+            # Force exit if clean shutdown fails
+            import sys
+            sys.exit(0)
+
+    def toggle_fullscreen(self, event=None):
+        """Toggle fullscreen mode - disabled in kiosk mode"""
+        logger.info("Fullscreen toggle disabled in kiosk mode")
+        return
 
     def key_down(self, event):
         """Handle key down event for mic control"""
@@ -464,7 +546,8 @@ class GPIOConfiguratorApp:
                               "🎓 New Class Session Started! 🎓\n\n"
                               "All previous configurations have been cleared.\n"
                               "Please configure GPIO pins for this class.\n\n"
-                              "Click 'Config' to get started!")
+                              "Click 'Config' to get started!",
+                              parent=self.root)
             logger.info("Startup notification shown")
         except Exception as e:
             logger.error(f"Error showing startup notification: {e}")
@@ -497,19 +580,25 @@ def run_app():
     
     app = GPIOConfiguratorApp(root)
     
-    # Set up proper cleanup on window close
+    # Configure window close behavior based on mode
     def on_closing():
-        try:
-            if app:
-                app.stop_pin_monitoring()
-                if hasattr(app, 'stop_analog_monitoring'):
-                    app.stop_analog_monitoring()
-                if hasattr(app, 'stop_audio_monitor'):
-                    app.stop_audio_monitor()
-            cleanup_gpio()
-            root.destroy()
-        except Exception as e:
-            logger.error(f"Error during cleanup: {e}")
+        if KIOSK_MODE_ENABLED:
+            """Prevent students from closing application"""
+            logger.info("Close attempt blocked - use teacher escape sequence (ESC ESC F12)")
+            return  # Do nothing - prevents closing
+        else:
+            """Normal window close in windowed mode"""
+            try:
+                if app:
+                    app.stop_pin_monitoring()
+                    if hasattr(app, 'stop_analog_monitoring'):
+                        app.stop_analog_monitoring()
+                    if hasattr(app, 'stop_audio_monitor'):
+                        app.stop_audio_monitor()
+                cleanup_gpio()
+                root.destroy()
+            except Exception as e:
+                logger.error(f"Error during cleanup: {e}")
     
     root.protocol("WM_DELETE_WINDOW", on_closing)
     root.mainloop() 

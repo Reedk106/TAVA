@@ -22,6 +22,11 @@ def open_config_window(self):
 
         # Use same background as main application
         self.config_window.configure(bg="#1e1e2e")
+        
+        # Ensure window appears on top of main application (especially important in kiosk mode)
+        self.config_window.attributes("-topmost", True)
+        self.config_window.transient(self.root)
+        self.config_window.grab_set()
 
         # Ensure it's centered on the screen
         def center_window(window):
@@ -116,6 +121,11 @@ def open_config_window(self):
                     popup.title("Predefined Pin Info")
                     popup.geometry("350x200")
                     popup.configure(bg="#1e1e2e")
+                    
+                    # Make popup appear on top
+                    popup.attributes("-topmost", True)
+                    popup.transient(self.config_window)
+                    popup.grab_set()
 
                     info_label = self.tkLabel(popup,
                                               text=f"The function '{selected_function}' is internally assigned to GPIO pins {predefined_function_pins[selected_function]}.{additional_info}",
@@ -141,8 +151,9 @@ def open_config_window(self):
             pin = pin_var.get()
 
             if not pin or not function:
+                # Set parent window for proper topmost behavior
                 messagebox.showwarning("Warning", "Please select both a pin and a function.",
-                                       icon=messagebox.WARNING)
+                                       parent=self.config_window, icon=messagebox.WARNING)
                 return
 
             logger.info(f"Saving assignment: {function} -> pin {pin}")
@@ -207,4 +218,4 @@ def open_config_window(self):
     except Exception as e:
         logger.error(f"Error opening config window: {e}")
         logger.error(traceback.format_exc())
-        messagebox.showerror("Error", f"Failed to open configuration window: {e}")
+        messagebox.showerror("Error", f"Failed to open configuration window: {e}", parent=self.root)

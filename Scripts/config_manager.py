@@ -63,4 +63,5 @@ def save_config(config):
             config_data = config
     except Exception as e:
         logger.error(f"Error saving configuration: {e}")
+        # Note: Can't use parent=self.root here as this is a module function, not a class method
         messagebox.showerror("Error", f"Failed to save configuration: {e}") 

@@ -59,4 +59,5 @@ def toggle_gpio_state(pin, btn, status_label, function, app):
     except Exception as e:
         logger.error(f"Error toggling GPIO state: {e}")
         logger.error(traceback.format_exc())
+        # Note: Can't use parent=self.root here as this is a module function, not a class method
         messagebox.showerror("Error", f"Failed to toggle GPIO state: {e}") 

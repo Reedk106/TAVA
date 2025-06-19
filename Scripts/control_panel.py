@@ -41,7 +41,7 @@ def load_gpio_controls(self):
     except Exception as e:
         logger.error(f"Error loading GPIO controls: {e}")
         logger.error(traceback.format_exc())
-        messagebox.showerror("Error", f"Failed to load GPIO controls: {e}")
+        messagebox.showerror("Error", f"Failed to load GPIO controls: {e}", parent=self.root)
 
 
 def create_gpio_control(self, pin, function):
@@ -165,7 +165,7 @@ def create_gpio_control(self, pin, function):
     except Exception as e:
         logger.error(f"Error creating GPIO control for pin {pin}: {e}")
         logger.error(traceback.format_exc())
-        messagebox.showerror("Error", f"Failed to create control for pin {pin}: {e}")
+        messagebox.showerror("Error", f"Failed to create control for pin {pin}: {e}", parent=self.root)
 
 
 def setup_gpio_area(self, parent):
@@ -809,7 +809,8 @@ def toggle_simulation_mode(self):
         if hasattr(self, 'root'):
             messagebox.showinfo("Simulation Mode", 
                               f"Analog simulation {status}.\n"
-                              f"{'Needles will now move automatically' if self.simulation_enabled else 'Needles will stay at zero unless there is real input'}")
+                              f"{'Needles will now move automatically' if self.simulation_enabled else 'Needles will stay at zero unless there is real input'}",
+                              parent=self.root)
         
         # If simulation is disabled, immediately set all needles to zero
         if not self.simulation_enabled:
