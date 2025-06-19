@@ -73,7 +73,7 @@ class GPIOConfiguratorApp:
             
             # Teacher escape sequence state
             self.escape_sequence = []
-            self.escape_target = ['Escape', 'Escape', 'F12']  # Press ESC ESC F12 to close
+            self.escape_target = ['Escape', 'Escape', 'Escape']  # Press ESC ESC ESC to close
             
             logger.info("Kiosk mode activated - students cannot close application")
         else:
@@ -320,7 +320,7 @@ class GPIOConfiguratorApp:
             # Teacher escape sequence (only in kiosk mode)
             if KIOSK_MODE_ENABLED:
                 self.root.bind("<KeyPress>", self.handle_teacher_escape)
-                logger.info("Teacher escape sequence: ESC ESC F12")
+                logger.info("Teacher escape sequence: ESC ESC ESC")
             else:
                 # Normal fullscreen toggle in windowed mode
                 self.root.bind("<F11>", self.toggle_fullscreen)
@@ -357,8 +357,8 @@ class GPIOConfiguratorApp:
                                   parent=self.root)
                 self.teacher_exit()
             
-            # Reset sequence if wrong key pressed (except ESC and F12 which are part of sequence)
-            elif key not in ['Escape', 'F12']:
+            # Reset sequence if wrong key pressed (except ESC which is part of sequence)
+            elif key not in ['Escape']:
                 self.escape_sequence = []
                 
         except Exception as e:
@@ -540,15 +540,67 @@ class GPIOConfiguratorApp:
             logger.error(f"Error stopping pin monitoring: {e}")
 
     def show_startup_notification(self):
-        """Show a notification that configurations have been cleared for new class session"""
+        """Show an auto-closing notification that configurations have been cleared for new class session"""
         try:
-            messagebox.showinfo("Fresh Session", 
-                              "🎓 New Class Session Started! 🎓\n\n"
-                              "All previous configurations have been cleared.\n"
-                              "Please configure GPIO pins for this class.\n\n"
-                              "Click 'Config' to get started!",
-                              parent=self.root)
-            logger.info("Startup notification shown")
+            # Create a custom notification window that auto-closes
+            notification = tk.Toplevel(self.root)
+            notification.title("Fresh Session")
+            notification.geometry("400x300")
+            notification.configure(bg="#1e1e2e")
+            notification.resizable(False, False)
+            
+            # Make it appear on top and center it
+            notification.attributes("-topmost", True)
+            notification.transient(self.root)
+            
+            # Center the notification
+            notification.update_idletasks()
+            x = (notification.winfo_screenwidth() // 2) - (400 // 2)
+            y = (notification.winfo_screenheight() // 2) - (300 // 2)
+            notification.geometry(f'+{x}+{y}')
+            
+            # Create the message content
+            title_label = tk.Label(notification, 
+                                 text="🎓 New Class Session Started! 🎓",
+                                 font=("Arial", 16, "bold"),
+                                 fg="#4CAF50",  # Green color
+                                 bg="#1e1e2e")
+            title_label.pack(pady=(20, 10))
+            
+            message_label = tk.Label(notification,
+                                   text="All previous configurations have been cleared.\n\n"
+                                        "Please configure GPIO pins for this class.\n\n"
+                                        "Click 'Config' to get started!",
+                                   font=("Arial", 12),
+                                   fg="white",
+                                   bg="#1e1e2e",
+                                   justify="center")
+            message_label.pack(pady=10)
+            
+            # Create countdown label
+            countdown_label = tk.Label(notification,
+                                     text="Auto-closing in 3 seconds...",
+                                     font=("Arial", 10),
+                                     fg="#FFC107",  # Amber color
+                                     bg="#1e1e2e")
+            countdown_label.pack(pady=(20, 10))
+            
+            # Auto-close functionality
+            countdown = 3
+            
+            def update_countdown():
+                nonlocal countdown
+                if countdown > 0:
+                    countdown_label.config(text=f"Auto-closing in {countdown} second{'s' if countdown != 1 else ''}...")
+                    countdown -= 1
+                    notification.after(1000, update_countdown)
+                else:
+                    notification.destroy()
+            
+            # Start the countdown
+            update_countdown()
+            
+            logger.info("Auto-closing startup notification shown")
         except Exception as e:
             logger.error(f"Error showing startup notification: {e}")
 
@@ -584,7 +636,7 @@ def run_app():
     def on_closing():
         if KIOSK_MODE_ENABLED:
             """Prevent students from closing application"""
-            logger.info("Close attempt blocked - use teacher escape sequence (ESC ESC F12)")
+            logger.info("Close attempt blocked - use teacher escape sequence (ESC ESC ESC)")
             return  # Do nothing - prevents closing
         else:
             """Normal window close in windowed mode"""

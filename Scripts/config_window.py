@@ -27,6 +27,11 @@ def open_config_window(self):
         self.config_window.attributes("-topmost", True)
         self.config_window.transient(self.root)
         self.config_window.grab_set()
+        
+        # Force window to front and focus (especially important on Pi)
+        self.config_window.lift()
+        self.config_window.focus_force()
+        self.config_window.update()  # Force immediate update
 
         # Ensure it's centered on the screen
         def center_window(window):
@@ -37,8 +42,12 @@ def open_config_window(self):
             y = (window.winfo_screenheight() // 2) - (height // 2)
             window.geometry(f'+{x}+{y}')
 
-        # Center the window
+        # Center the window after forcing visibility
         center_window(self.config_window)
+        
+        # Additional visibility enforcement after centering
+        self.config_window.lift()
+        self.config_window.attributes("-topmost", True)
 
         # Create a main frame with padding
         # Use tk.Frame when we need background color, as TTK frames don't support bg option

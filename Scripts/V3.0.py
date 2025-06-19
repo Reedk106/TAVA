@@ -4,7 +4,7 @@ sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')
 from main_window import run_app
 
 # GPIO Control Panel Version
-VERSION = "V1.0 - Piedmont Edition"
+VERSION = "v5.0 - Piedmont Edition"
 
 # GPIO Control Panel V3.0
 # Automatically clears all configurations on startup for classroom use
