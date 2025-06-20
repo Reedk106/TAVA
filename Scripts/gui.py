@@ -34,10 +34,16 @@ class GPIOConfiguratorApp:
         logger.info("Initializing application...")
         self.root = root
         self.root.title("GPIO Control Panel")
-        self.root.geometry("800x480")
+        
+        # Use screen-sized window approach instead of fullscreen
+        screen_width = self.root.winfo_screenwidth()
+        screen_height = self.root.winfo_screenheight()
+        self.root.geometry(f"{screen_width}x{screen_height}+0+0")
+        self.root.overrideredirect(True)  # Remove window decorations
         self.root.resizable(False, False)
+        self.root.attributes("-topmost", True)
         self.root.configure(bg="#1e1e2e")
-        self.fullscreen = False
+        self.fullscreen = True
 
         # Set up simulation tracking (used regardless of actual platform)
         self.simulated_inputs = {pin: 1 for pin in MONITORING_PINS}
@@ -96,14 +102,37 @@ class GPIOConfiguratorApp:
         logger.info("Application initialization complete")
 
     def toggle_fullscreen(self, event=None):
-        """Toggle fullscreen mode - can be triggered by Escape key"""
-        logger.debug(f"Toggling fullscreen: current={self.fullscreen}")
+        """Simplified screen-sized window toggle"""
         try:
-            self.fullscreen = not self.fullscreen
-            self.root.attributes("-fullscreen", self.fullscreen)
+            if getattr(self, 'fullscreen', True):
+                # Currently screen-sized -> switch to windowed
+                self.root.overrideredirect(False)  # Restore window decorations
+                self.root.attributes("-topmost", False)  # Remove always-on-top
+                self.root.geometry("800x480+100+50")  # Set windowed size with offset
+                self.root.title("GPIO Control Panel - Windowed Mode")
+                self.root.resizable(False, False)  # Keep non-resizable
+                self.fullscreen = False
+                logger.info("Switched to windowed mode")
+            else:
+                # Currently windowed -> switch to screen-sized
+                self.root.title("")  # Remove title
+                
+                # Get current screen dimensions
+                screen_width = self.root.winfo_screenwidth()
+                screen_height = self.root.winfo_screenheight()
+                
+                # Set to screen size and remove decorations
+                self.root.geometry(f"{screen_width}x{screen_height}+0+0")
+                self.root.overrideredirect(True)  # Remove decorations
+                self.root.attributes("-topmost", True)  # Keep on top
+                self.root.resizable(False, False)  # Keep non-resizable
+                
+                self.fullscreen = True
+                logger.info(f"Switched to screen-sized mode: {screen_width}x{screen_height}")
+            
             return "break"  # Prevent the event from propagating
         except Exception as e:
-            logger.error(f"Error toggling fullscreen: {e}")
+            logger.error(f"Error toggling display mode: {e}")
             return "break"
 
     def draw_square(self, name, x, y, size=10, color="red"):
@@ -517,9 +546,9 @@ class GPIOConfiguratorApp:
 
                         i2c = busio.I2C(board.SCL, board.SDA)
                         ads = ADS.ADS1115(i2c)
-                                            pot_channel = AnalogIn(ads, getattr(ADS, f'P{ADS_POT_CHANNEL}'))      # Potentiometer on P0
-                    temp_channel = AnalogIn(ads, getattr(ADS, f'P{ADS_TEMP_CHANNEL}'))    # Temperature on P1
-                    aux_channel = AnalogIn(ads, getattr(ADS, f'P{ADS_SIGNAL_CHANNEL}'))   # Signal Quality on P2  # Auxiliary input
+                        pot_channel = AnalogIn(ads, getattr(ADS, f'P{ADS_POT_CHANNEL}'))      # Potentiometer on P0
+                        temp_channel = AnalogIn(ads, getattr(ADS, f'P{ADS_TEMP_CHANNEL}'))    # Temperature on P1
+                        aux_channel = AnalogIn(ads, getattr(ADS, f'P{ADS_SIGNAL_CHANNEL}'))   # Signal Quality on P2  # Auxiliary input
 
                         while self.analog_monitoring:
                             # Read potentiometer
