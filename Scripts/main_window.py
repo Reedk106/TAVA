@@ -26,6 +26,7 @@ from control_panel import (
 from overlays import create_status_overlays, animate_no_config
 import signal
 import os
+import traceback
 
 # Safe import of auto-updater (optional feature)
 try:
@@ -389,19 +390,19 @@ class GPIOConfiguratorApp:
             sys.exit(0)
 
     def toggle_fullscreen(self, event=None):
-        """Toggle fullscreen mode - now works in kiosk mode via signal"""
+        """Pi-optimized fullscreen toggle - avoids override-redirect issues"""
         try:
             # Store the previous state for logging
             was_fullscreen = getattr(self, 'fullscreen', True)
             
             if KIOSK_MODE_ENABLED:
-                # In kiosk mode, we can still toggle fullscreen
-                # This helps with config windows and debugging
+                # Pi-optimized approach: Use geometry management instead of override-redirect
+                # This avoids the strange behavior and window management issues
                 import platform
                 system = platform.system()
                 
                 if system == "Windows":
-                    # Toggle Windows fullscreen
+                    # Windows: Use native fullscreen toggle
                     current_fullscreen = self.root.attributes("-fullscreen")
                     new_fullscreen = not current_fullscreen
                     self.root.attributes("-fullscreen", new_fullscreen)
@@ -413,26 +414,41 @@ class GPIOConfiguratorApp:
                         self.root.attributes("-topmost", False)
                         
                 else:
-                    # Linux/Pi: Toggle between override-redirect and normal window
-                    current_override = self.root.overrideredirect()
-                    if current_override:
-                        # Switch to normal windowed mode
-                        self.root.overrideredirect(False)
-                        self.root.geometry("800x480")
+                    # Linux/Pi: Use a more stable approach
+                    # Instead of override-redirect, use geometry + attributes
+                    if getattr(self, 'fullscreen', True):
+                        # Currently fullscreen -> switch to windowed
+                        self.root.overrideredirect(False)  # Restore window decorations
+                        self.root.attributes("-topmost", False)  # Remove always-on-top
+                        self.root.geometry("800x480+100+50")  # Set windowed size with offset
                         self.root.title("GPIO Control Panel - Windowed Mode")
                         self.fullscreen = False
+                        logger.info("Switched to windowed mode - window decorations restored")
                     else:
-                        # Switch back to fullscreen kiosk mode
+                        # Currently windowed -> switch to fullscreen
+                        self.root.title("")  # Remove title
+                        # Use a two-step approach for better Pi compatibility
+                        screen_width = self.root.winfo_screenwidth()
+                        screen_height = self.root.winfo_screenheight()
+                        
+                        # First, make it full size
+                        self.root.geometry(f"{screen_width}x{screen_height}+0+0")
+                        self.root.update()  # Apply geometry changes
+                        
+                        # Then remove decorations
                         self.root.overrideredirect(True)
-                        self.root.geometry(f"{self.root.winfo_screenwidth()}x{self.root.winfo_screenheight()}+0+0")
+                        self.root.attributes("-topmost", True)
+                        
                         self.fullscreen = True
+                        logger.info("Switched to fullscreen mode - Pi optimized")
                 
                 # Log the change
                 mode = "FULLSCREEN" if self.fullscreen else "WINDOWED"
                 logger.info(f"Display mode toggled to: {mode}")
                 
-                # Show temporary status
-                self.show_mode_status(mode)
+                # Show temporary status (only if no config window is open)
+                if not hasattr(self, 'config_window') or not self.config_window.winfo_exists():
+                    self.show_mode_status(mode)
                 
             else:
                 # Normal windowed mode toggle (existing functionality)
@@ -440,53 +456,70 @@ class GPIOConfiguratorApp:
                 self.root.attributes("-fullscreen", self.fullscreen)
                 logger.info(f"Fullscreen toggled: {self.fullscreen}")
             
+            # Force a GUI update to ensure changes take effect
+            self.root.update_idletasks()
             return "break"  # Prevent event propagation
             
         except Exception as e:
             logger.error(f"Error toggling fullscreen: {e}")
+            logger.error(traceback.format_exc())
             return "break"
 
     def show_mode_status(self, mode):
-        """Show a temporary status indicator for mode changes"""
+        """Show a temporary status indicator for mode changes (Pi-optimized)"""
         try:
-            # Create a temporary status overlay
+            # Skip status display if we're on Pi and having issues
+            import platform
+            system = platform.system()
+            
+            # Create a simple, Pi-compatible status overlay
             status_window = tk.Toplevel(self.root)
             status_window.title("Mode Status")
-            status_window.geometry("300x100")
+            status_window.geometry("250x80")
             status_window.configure(bg="#1e1e2e")
             status_window.resizable(False, False)
             
-            # Make it always on top and center it
-            status_window.attributes("-topmost", True)
-            status_window.transient(self.root)
-            
-            # Center the status window
-            status_window.update_idletasks()
-            x = (status_window.winfo_screenwidth() // 2) - (150)
-            y = (status_window.winfo_screenheight() // 2) - (50)
-            status_window.geometry(f'+{x}+{y}')
+            # Simplified visibility for Pi compatibility
+            if system == "Linux":
+                # Pi-specific: Don't use override-redirect or complex positioning
+                status_window.attributes("-topmost", True)
+                status_window.transient(self.root)
+                
+                # Simple centering
+                status_window.update_idletasks()
+                x = 100  # Fixed position to avoid calculation issues
+                y = 100
+                status_window.geometry(f'+{x}+{y}')
+            else:
+                # Windows: Use normal positioning
+                status_window.attributes("-topmost", True)
+                status_window.transient(self.root)
+                status_window.update_idletasks()
+                x = (status_window.winfo_screenwidth() // 2) - (125)
+                y = (status_window.winfo_screenheight() // 2) - (40)
+                status_window.geometry(f'+{x}+{y}')
             
             # Create the status message
             if mode == "WINDOWED":
-                message = "🖼️ WINDOWED MODE\nConfig windows will work properly"
+                message = "🖼️ WINDOWED\nConfig OK"
                 color = "#4CAF50"  # Green
             else:
-                message = "🖥️ FULLSCREEN MODE\nKiosk mode active"
+                message = "🖥️ FULLSCREEN\nKiosk Active"
                 color = "#2196F3"  # Blue
             
             status_label = tk.Label(status_window,
                                   text=message,
-                                  font=("Arial", 12, "bold"),
+                                  font=("Arial", 10, "bold"),
                                   fg=color,
                                   bg="#1e1e2e",
                                   justify="center")
             status_label.pack(expand=True)
             
-            # Auto-close after 2 seconds
-            status_window.after(2000, status_window.destroy)
+            # Auto-close after 1.5 seconds (shorter for Pi)
+            status_window.after(1500, status_window.destroy)
             
         except Exception as e:
-            logger.error(f"Error showing mode status: {e}")
+            logger.warning(f"Could not show mode status: {e}")
 
     def setup_signal_handlers(self):
         """Setup signal handlers for external control"""

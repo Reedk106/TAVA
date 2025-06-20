@@ -10,17 +10,30 @@ logger = logging.getLogger("GPIO_Control")
 
 
 def open_config_window(self):
-    """Open the configuration window with enhanced visibility for fullscreen mode"""
+    """Open the configuration window with enhanced Pi-compatible visibility"""
     try:
         logger.info("Opening configuration window")
         
-        # Check if we're in fullscreen mode and temporarily switch to windowed for config
+        # Check if a config window is already open and close it first
+        if hasattr(self, 'config_window'):
+            try:
+                if self.config_window.winfo_exists():
+                    logger.info("Closing existing config window")
+                    self.config_window.destroy()
+            except (AttributeError, tk.TclError):
+                # Window doesn't exist or was already destroyed
+                pass
+            # Clean up the reference
+            self.config_window = None
+        
+        # Ensure we're in windowed mode for config (Pi-compatible approach)
         was_fullscreen = getattr(self, 'fullscreen', False)
         if hasattr(self, 'fullscreen') and self.fullscreen:
             logger.info("Temporarily switching to windowed mode for config window")
             self.toggle_fullscreen()  # Switch to windowed mode
-            # Give it a moment to switch
-            self.root.update()
+            # Give it extra time to switch on Pi
+            time.sleep(0.2)
+            self.root.update_idletasks()
             
         self.config_window = tk.Toplevel(self.root)
         self.config_window.title("Configure GPIO - GPIO Control Panel")
@@ -37,22 +50,29 @@ def open_config_window(self):
         self.config_window.transient(self.root)
         self.config_window.grab_set()
         
-        # Platform-specific window management
+        # Platform-specific window management (Pi-optimized)
         import platform
+        import time
         system = platform.system()
         
         if system == "Linux":
-            # On Linux/Pi, ensure it's not affected by override-redirect
+            # On Linux/Pi, use simpler window management to avoid conflicts
             self.config_window.overrideredirect(False)
             self.config_window.wm_attributes("-type", "dialog")
+            # Give Pi time to process window creation
+            time.sleep(0.1)
+            self.config_window.update()
         
-        # Force window to front and focus with multiple attempts
-        for i in range(3):
+        # Pi-optimized visibility approach with error handling
+        try:
+            # Single attempt with better error handling
             self.config_window.lift()
             self.config_window.focus_force()
             self.config_window.attributes("-topmost", True)
-            self.config_window.update()
-            self.root.after(50)  # Small delay between attempts
+            self.config_window.update_idletasks()
+            logger.info("Config window visibility set successfully")
+        except Exception as e:
+            logger.warning(f"Window visibility setting failed: {e}, continuing anyway")
 
         # Enhanced centering function
         def center_window(window):
