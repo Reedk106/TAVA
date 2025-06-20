@@ -26,14 +26,9 @@ def open_config_window(self):
             # Clean up the reference
             self.config_window = None
         
-        # Ensure we're in windowed mode for config (Pi-compatible approach)
+        # Store fullscreen state but DON'T auto-switch anymore
         was_fullscreen = getattr(self, 'fullscreen', False)
-        if hasattr(self, 'fullscreen') and self.fullscreen:
-            logger.info("Temporarily switching to windowed mode for config window")
-            self.toggle_fullscreen()  # Switch to windowed mode
-            # Give it extra time to switch on Pi
-            time.sleep(0.2)
-            self.root.update_idletasks()
+        # Let user stay in their preferred mode - config will appear on top
             
         self.config_window = tk.Toplevel(self.root)
         self.config_window.title("Configure GPIO - GPIO Control Panel")
@@ -49,6 +44,12 @@ def open_config_window(self):
         self.config_window.attributes("-topmost", True)
         self.config_window.transient(self.root)
         self.config_window.grab_set()
+        
+        # Extra visibility boost for fullscreen mode
+        if was_fullscreen:
+            self.config_window.lift()
+            self.config_window.focus_force()
+            logger.info("Config dialog opened over fullscreen window")
         
         # Platform-specific window management (Pi-optimized)
         import platform
@@ -102,15 +103,13 @@ def open_config_window(self):
         # Store fullscreen state to restore later
         self.config_window._was_fullscreen = was_fullscreen
         
-        # Add close handler to restore fullscreen if needed
+        # Add close handler (no auto-restore needed since we didn't switch)
         def on_config_close():
             was_fullscreen = getattr(self.config_window, '_was_fullscreen', False)
             self.config_window.destroy()
             
-            # Restore fullscreen mode if it was active before
-            if was_fullscreen and hasattr(self, 'fullscreen') and not self.fullscreen:
-                logger.info("Restoring fullscreen mode after config window closed")
-                self.root.after(100, self.toggle_fullscreen)
+            # No need to restore since we never changed the mode
+            logger.info("Config window closed - main window mode unchanged")
                 
         self.config_window.protocol("WM_DELETE_WINDOW", on_config_close)
 
