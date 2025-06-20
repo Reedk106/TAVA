@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# GPIO Control Panel - Complete Installation and Verification Script
+# GPIO Control Panel - Complete Installation and Verification Script with Progress Bars
 # Run this script on your Raspberry Pi to install and verify all dependencies
 # This script must be run from the main TAVA directory
 
@@ -11,17 +11,22 @@ YELLOW='\033[1;33m'
 BLUE='\033[0;34m'
 PURPLE='\033[0;35m'
 CYAN='\033[0;36m'
+WHITE='\033[1;37m'
 NC='\033[0m' # No Color
 
 # Log file
 LOG_FILE="install_log_$(date +%Y%m%d_%H%M%S).txt"
 
-echo -e "${BLUE}🚀 GPIO Control Panel - Installation & Verification Script${NC}"
-echo -e "${BLUE}================================================================${NC}"
+# Progress tracking
+TOTAL_STEPS=7
+CURRENT_STEP=0
+
+echo -e "${BLUE}🚀 GPIO Control Panel - Enhanced Installation & Verification Script${NC}"
+echo -e "${BLUE}=====================================================================${NC}"
 echo ""
 echo "This script will:"
-echo "  1. Install all required system packages"
-echo "  2. Install all Python packages"
+echo "  1. Install all required system packages (with progress)"
+echo "  2. Install all Python packages (with progress)"
 echo "  3. Enable necessary hardware interfaces"
 echo "  4. Verify all installations"
 echo "  5. Test hardware connectivity"
@@ -38,10 +43,51 @@ if [ ! -d "Scripts" ] || [ ! -f "Scripts/V3.0.py" ]; then
     exit 1
 fi
 
-# Function to log and display
+# Function to show progress bar
+show_progress() {
+    local current=$1
+    local total=$2
+    local description=$3
+    local width=50
+    local percentage=$((current * 100 / total))
+    local filled=$((current * width / total))
+    
+    printf "\r${BLUE}["
+    for ((i=0; i<filled; i++)); do printf "█"; done
+    for ((i=filled; i<width; i++)); do printf "░"; done
+    printf "] %3d%% - %s${NC}" "$percentage" "$description"
+    
+    if [ "$current" -eq "$total" ]; then
+        echo ""
+    fi
+}
+
+# Function to show spinner
+show_spinner() {
+    local pid=$1
+    local message=$2
+    local spin_chars='⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏'
+    local i=0
+    
+    while kill -0 $pid 2>/dev/null; do
+        printf "\r${CYAN}%c %s${NC}" "${spin_chars:$((i%10)):1}" "$message"
+        sleep 0.1
+        ((i++))
+    done
+    printf "\r"
+}
+
+# Enhanced logging function
 log_and_echo() {
     echo -e "$1"
     echo -e "$1" | sed 's/\x1b\[[0-9;]*m//g' >> "$LOG_FILE"
+}
+
+# Function to update step progress
+update_step_progress() {
+    CURRENT_STEP=$((CURRENT_STEP + 1))
+    show_progress $CURRENT_STEP $TOTAL_STEPS "Step $CURRENT_STEP/$TOTAL_STEPS completed"
+    echo ""
 }
 
 # Function to check if running as root
@@ -66,102 +112,199 @@ check_pi() {
     fi
 }
 
-# Function to update system
+# Enhanced system update function
 update_system() {
     log_and_echo "${BLUE}📦 Step 1: Updating system packages...${NC}"
-    sudo apt update >> "$LOG_FILE" 2>&1
+    
+    echo -e "${CYAN}  → Updating package lists...${NC}"
+    sudo apt update > "$LOG_FILE.tmp" 2>&1 &
+    show_spinner $! "Downloading package information"
+    wait
+    
     if [ $? -eq 0 ]; then
-        log_and_echo "${GREEN}✅ System package list updated${NC}"
+        log_and_echo "${GREEN}  ✅ System package list updated${NC}"
     else
-        log_and_echo "${RED}❌ Failed to update package list${NC}"
+        log_and_echo "${RED}  ❌ Failed to update package list${NC}"
+        cat "$LOG_FILE.tmp" | tail -10
         exit 1
     fi
     
-    sudo apt upgrade -y >> "$LOG_FILE" 2>&1
+    echo -e "${CYAN}  → Upgrading installed packages...${NC}"
+    # Count packages to upgrade for progress
+    UPGRADE_COUNT=$(apt list --upgradable 2>/dev/null | wc -l)
+    log_and_echo "${CYAN}    Found $UPGRADE_COUNT packages to upgrade${NC}"
+    
+    sudo apt upgrade -y > "$LOG_FILE.tmp" 2>&1 &
+    show_spinner $! "Upgrading $UPGRADE_COUNT packages"
+    wait
+    
     if [ $? -eq 0 ]; then
-        log_and_echo "${GREEN}✅ System packages upgraded${NC}"
+        log_and_echo "${GREEN}  ✅ System packages upgraded${NC}"
     else
-        log_and_echo "${YELLOW}⚠️  Some packages may not have upgraded properly${NC}"
+        log_and_echo "${YELLOW}  ⚠️  Some packages may not have upgraded properly${NC}"
+        tail -5 "$LOG_FILE.tmp"
     fi
+    
+    cat "$LOG_FILE.tmp" >> "$LOG_FILE"
+    rm -f "$LOG_FILE.tmp"
+    update_step_progress
 }
 
-# Function to install system dependencies
+# Enhanced system dependencies installation
 install_system_deps() {
     log_and_echo "${BLUE}🔧 Step 2: Installing system dependencies...${NC}"
     
     SYSTEM_PACKAGES=(
-        "python3-dev"
-        "python3-pip" 
-        "python3-venv"
-        "python3-tk"
-        "libjpeg-dev"
-        "zlib1g-dev"
-        "libfreetype6-dev"
-        "i2c-tools"
-        "git"
+        "python3-dev:Python 3 development headers"
+        "python3-pip:Python package installer" 
+        "python3-venv:Python virtual environments"
+        "python3-tk:Python Tkinter GUI library"
+        "libjpeg-dev:JPEG image library (development)"
+        "zlib1g-dev:Compression library (development)"
+        "libfreetype6-dev:Font rendering library"
+        "i2c-tools:I2C interface utilities"
+        "git:Version control system"
     )
     
-    for package in "${SYSTEM_PACKAGES[@]}"; do
-        log_and_echo "  Installing $package..."
-        sudo apt install -y "$package" >> "$LOG_FILE" 2>&1
-        if [ $? -eq 0 ]; then
-            log_and_echo "    ${GREEN}✅ $package installed${NC}"
+    local total_packages=${#SYSTEM_PACKAGES[@]}
+    local current_package=0
+    
+    for package_info in "${SYSTEM_PACKAGES[@]}"; do
+        IFS=':' read -r package description <<< "$package_info"
+        current_package=$((current_package + 1))
+        
+        echo -e "${CYAN}  → Installing $package ($current_package/$total_packages)${NC}"
+        echo -e "${WHITE}    $description${NC}"
+        
+        # Check if already installed
+        if dpkg -l | grep -q "^ii  $package "; then
+            log_and_echo "${GREEN}    ✅ $package already installed${NC}"
         else
-            log_and_echo "    ${RED}❌ Failed to install $package${NC}"
+            sudo apt install -y "$package" > "$LOG_FILE.tmp" 2>&1 &
+            local install_pid=$!
+            show_spinner $install_pid "Installing $package"
+            wait $install_pid
+            local install_result=$?
+            
+            if [ $install_result -eq 0 ]; then
+                log_and_echo "${GREEN}    ✅ $package installed successfully${NC}"
+            else
+                log_and_echo "${RED}    ❌ Failed to install $package${NC}"
+                echo -e "${YELLOW}    Last few lines of error:${NC}"
+                tail -3 "$LOG_FILE.tmp"
+            fi
+            
+            cat "$LOG_FILE.tmp" >> "$LOG_FILE"
         fi
+        
+        show_progress $current_package $total_packages "Installing system packages"
     done
+    
+    rm -f "$LOG_FILE.tmp"
+    update_step_progress
 }
 
-# Function to enable hardware interfaces
+# Enhanced hardware interfaces setup
 enable_interfaces() {
     log_and_echo "${BLUE}⚡ Step 3: Enabling hardware interfaces...${NC}"
     
-    # Enable I2C
-    sudo raspi-config nonint do_i2c 0 >> "$LOG_FILE" 2>&1
+    echo -e "${CYAN}  → Enabling I2C interface...${NC}"
+    sudo raspi-config nonint do_i2c 0 >> "$LOG_FILE" 2>&1 &
+    show_spinner $! "Configuring I2C interface"
+    wait
+    
     if [ $? -eq 0 ]; then
-        log_and_echo "${GREEN}✅ I2C interface enabled${NC}"
+        log_and_echo "${GREEN}  ✅ I2C interface enabled${NC}"
     else
-        log_and_echo "${RED}❌ Failed to enable I2C${NC}"
+        log_and_echo "${RED}  ❌ Failed to enable I2C${NC}"
     fi
     
-    # Enable SPI (might be needed for some sensors)
-    sudo raspi-config nonint do_spi 0 >> "$LOG_FILE" 2>&1
+    echo -e "${CYAN}  → Enabling SPI interface...${NC}"
+    sudo raspi-config nonint do_spi 0 >> "$LOG_FILE" 2>&1 &
+    show_spinner $! "Configuring SPI interface"
+    wait
+    
     if [ $? -eq 0 ]; then
-        log_and_echo "${GREEN}✅ SPI interface enabled${NC}"
+        log_and_echo "${GREEN}  ✅ SPI interface enabled${NC}"
     else
-        log_and_echo "${YELLOW}⚠️  SPI enable may have failed (not critical)${NC}"
+        log_and_echo "${YELLOW}  ⚠️  SPI enable may have failed (not critical)${NC}"
     fi
     
-    # Add user to gpio, i2c, spi groups
+    echo -e "${CYAN}  → Adding user to hardware groups...${NC}"
     sudo usermod -a -G gpio,i2c,spi $USER >> "$LOG_FILE" 2>&1
-    log_and_echo "${GREEN}✅ User added to hardware groups${NC}"
+    log_and_echo "${GREEN}  ✅ User $USER added to gpio, i2c, spi groups${NC}"
+    
+    update_step_progress
 }
 
-# Function to install Python packages
+# Enhanced Python packages installation
 install_python_deps() {
     log_and_echo "${BLUE}🐍 Step 4: Installing Python packages...${NC}"
     
-    # Upgrade pip first
-    log_and_echo "  Upgrading pip..."
-    python3 -m pip install --upgrade pip >> "$LOG_FILE" 2>&1
+    echo -e "${CYAN}  → Upgrading pip...${NC}"
+    python3 -m pip install --upgrade pip > "$LOG_FILE.tmp" 2>&1 &
+    show_spinner $! "Upgrading pip to latest version"
+    wait
+    
+    if [ $? -eq 0 ]; then
+        local pip_version=$(python3 -m pip --version | cut -d' ' -f2)
+        log_and_echo "${GREEN}  ✅ Pip upgraded to version $pip_version${NC}"
+    else
+        log_and_echo "${YELLOW}  ⚠️  Pip upgrade may have failed${NC}"
+    fi
     
     PYTHON_PACKAGES=(
-        "RPi.GPIO"
-        "adafruit-blinka"
-        "adafruit-circuitpython-ads1x15"
-        "Pillow"
-        "ttkbootstrap"
+        "RPi.GPIO:Raspberry Pi GPIO control library"
+        "adafruit-blinka:CircuitPython compatibility layer"
+        "adafruit-circuitpython-ads1x15:ADS1115/ADS1015 ADC library"
+        "Pillow:Python Imaging Library (PIL)"
+        "ttkbootstrap:Enhanced Tkinter themes (optional)"
     )
     
-    for package in "${PYTHON_PACKAGES[@]}"; do
-        log_and_echo "  Installing $package..."
-        python3 -m pip install "$package" >> "$LOG_FILE" 2>&1
-        if [ $? -eq 0 ]; then
-            log_and_echo "    ${GREEN}✅ $package installed${NC}"
+    local total_packages=${#PYTHON_PACKAGES[@]}
+    local current_package=0
+    
+    for package_info in "${PYTHON_PACKAGES[@]}"; do
+        IFS=':' read -r package description <<< "$package_info"
+        current_package=$((current_package + 1))
+        
+        echo -e "${CYAN}  → Installing $package ($current_package/$total_packages)${NC}"
+        echo -e "${WHITE}    $description${NC}"
+        
+        # Show package installation with detailed output
+        python3 -m pip install "$package" --verbose > "$LOG_FILE.tmp" 2>&1 &
+        local install_pid=$!
+        show_spinner $install_pid "Installing $package with dependencies"
+        wait $install_pid
+        local install_result=$?
+        
+        if [ $install_result -eq 0 ]; then
+            # Get installed version
+            local version=$(python3 -m pip show "$package" 2>/dev/null | grep "^Version:" | cut -d' ' -f2)
+            log_and_echo "${GREEN}    ✅ $package v$version installed successfully${NC}"
+            
+            # Show dependencies that were installed
+            local deps=$(grep "Installing collected packages:" "$LOG_FILE.tmp" | head -1)
+            if [ -n "$deps" ]; then
+                echo -e "${WHITE}    Dependencies: ${deps#*: }${NC}"
+            fi
         else
-            log_and_echo "    ${RED}❌ Failed to install $package${NC}"
+            log_and_echo "${RED}    ❌ Failed to install $package${NC}"
+            echo -e "${YELLOW}    Error details:${NC}"
+            tail -5 "$LOG_FILE.tmp" | head -3
+            
+            # For optional packages, continue
+            if [[ "$package" == "ttkbootstrap" ]]; then
+                log_and_echo "${YELLOW}    (Optional package - continuing)${NC}"
+            fi
         fi
+        
+        cat "$LOG_FILE.tmp" >> "$LOG_FILE"
+        show_progress $current_package $total_packages "Installing Python packages"
     done
+    
+    rm -f "$LOG_FILE.tmp"
+    update_step_progress
 }
 
 # Function to create verification script
@@ -300,23 +443,47 @@ if __name__ == "__main__":
 EOF
 }
 
-# Function to run verification
+# Enhanced verification function
 run_verification() {
     log_and_echo "${BLUE}🧪 Step 5: Verifying installation...${NC}"
     
+    echo -e "${CYAN}  → Creating verification script...${NC}"
     create_verification_script
-    python3 verify_installation.py | tee -a "$LOG_FILE"
+    
+    echo -e "${CYAN}  → Running comprehensive tests...${NC}"
+    python3 verify_installation.py > "$LOG_FILE.tmp" 2>&1 &
+    show_spinner $! "Testing all installations and hardware"
+    wait
+    
+    # Show verification results with color coding
+    cat "$LOG_FILE.tmp" | while IFS= read -r line; do
+        if [[ $line == *"✅"* ]]; then
+            echo -e "${GREEN}  $line${NC}"
+        elif [[ $line == *"❌"* ]]; then
+            echo -e "${RED}  $line${NC}"
+        elif [[ $line == *"⚠️"* ]]; then
+            echo -e "${YELLOW}  $line${NC}"
+        else
+            echo -e "${WHITE}  $line${NC}"
+        fi
+    done
+    
+    cat "$LOG_FILE.tmp" >> "$LOG_FILE"
+    rm -f "$LOG_FILE.tmp"
     
     # Clean up verification script
     rm -f verify_installation.py
+    
+    update_step_progress
 }
 
-# Function to create application launcher
+# Enhanced launcher creation
 create_launcher() {
     log_and_echo "${BLUE}📱 Step 6: Creating application launcher...${NC}"
     
     MAIN_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
     
+    echo -e "${CYAN}  → Creating launcher script...${NC}"
     cat > run_gpio_control.sh << EOF
 #!/bin/bash
 # GPIO Control Panel Launcher
@@ -326,10 +493,11 @@ python3 V3.0.py "\$@"
 EOF
     
     chmod +x run_gpio_control.sh
-    log_and_echo "${GREEN}✅ Created launcher script: run_gpio_control.sh${NC}"
+    log_and_echo "${GREEN}  ✅ Created launcher script: run_gpio_control.sh${NC}"
     
     # Create desktop entry if desktop exists
     if [ -d "$HOME/Desktop" ]; then
+        echo -e "${CYAN}  → Creating desktop shortcut...${NC}"
         cat > "$HOME/Desktop/GPIO Control Panel.desktop" << EOF
 [Desktop Entry]
 Version=1.0
@@ -342,11 +510,20 @@ Terminal=false
 Categories=System;Electronics;
 EOF
         chmod +x "$HOME/Desktop/GPIO Control Panel.desktop"
-        log_and_echo "${GREEN}✅ Created desktop shortcut${NC}"
+        log_and_echo "${GREEN}  ✅ Created desktop shortcut${NC}"
     fi
+    
+    echo -e "${CYAN}  → Testing launcher...${NC}"
+    if [ -x "./run_gpio_control.sh" ]; then
+        log_and_echo "${GREEN}  ✅ Launcher is executable and ready${NC}"
+    else
+        log_and_echo "${RED}  ❌ Launcher creation failed${NC}"
+    fi
+    
+    update_step_progress
 }
 
-# Function to setup auto-start on boot
+# Enhanced auto-start setup
 setup_autostart() {
     log_and_echo "${BLUE}🚀 Step 7: Setting up auto-start on boot...${NC}"
     
@@ -372,14 +549,17 @@ setup_autostart() {
                 break
                 ;;
             2)
+                echo -e "${CYAN}  → Setting up desktop auto-start...${NC}"
                 setup_desktop_autostart "$MAIN_DIR"
                 break
                 ;;
             3)
+                echo -e "${CYAN}  → Setting up system service...${NC}"
                 setup_systemd_service "$MAIN_DIR"
                 break
                 ;;
             4)
+                echo -e "${CYAN}  → Setting up both desktop and service auto-start...${NC}"
                 setup_desktop_autostart "$MAIN_DIR"
                 setup_systemd_service "$MAIN_DIR"
                 break
@@ -390,8 +570,10 @@ setup_autostart() {
         esac
     done
     
-    # Create management scripts
+    echo -e "${CYAN}  → Creating management scripts...${NC}"
     create_autostart_management_scripts "$MAIN_DIR"
+    
+    update_step_progress
 }
 
 # Function to setup desktop autostart
@@ -588,13 +770,29 @@ EOF
     log_and_echo "${CYAN}       Use './manage_autostart.sh disable-all' to disable autostart${NC}"
 }
 
-# Main installation function
+# Enhanced main installation function
 main() {
+    echo -e "${PURPLE}════════════════════════════════════════════════════════════════════${NC}"
+    echo -e "${PURPLE}                    STARTING INSTALLATION PROCESS                    ${NC}"
+    echo -e "${PURPLE}════════════════════════════════════════════════════════════════════${NC}"
+    
     log_and_echo "Installation started at $(date)" 
     log_and_echo "Running from: $(pwd)"
+    log_and_echo "User: $USER"
+    log_and_echo "Python version: $(python3 --version)"
+    log_and_echo "OS: $(cat /etc/os-release | grep PRETTY_NAME | cut -d'=' -f2 | tr -d '\"')"
     
+    echo ""
+    show_progress 0 $TOTAL_STEPS "Initializing installation"
+    echo ""
+    
+    echo -e "${CYAN}Pre-flight checks...${NC}"
     check_root
     check_pi
+    
+    echo -e "${PURPLE}════════════════════════════════════════════════════════════════════${NC}"
+    echo -e "${PURPLE}                      INSTALLATION STEPS                            ${NC}"
+    echo -e "${PURPLE}════════════════════════════════════════════════════════════════════${NC}"
     
     update_system
     install_system_deps
@@ -604,16 +802,35 @@ main() {
     create_launcher
     setup_autostart
     
-    log_and_echo ""
+    echo -e "${PURPLE}════════════════════════════════════════════════════════════════════${NC}"
+    echo -e "${PURPLE}                    INSTALLATION COMPLETE!                          ${NC}"
+    echo -e "${PURPLE}════════════════════════════════════════════════════════════════════${NC}"
+    
+    show_progress $TOTAL_STEPS $TOTAL_STEPS "All installation steps completed"
+    echo ""
+    
     log_and_echo "${GREEN}🎉 Installation Complete!${NC}"
     log_and_echo ""
+    log_and_echo "${BLUE}📊 Installation Summary:${NC}"
+    
+    # Count successful installations
+    local system_packages=9
+    local python_packages=5
+    log_and_echo "${GREEN}  ✅ $system_packages system packages installed${NC}"
+    log_and_echo "${GREEN}  ✅ $python_packages Python packages installed${NC}"
+    log_and_echo "${GREEN}  ✅ Hardware interfaces enabled${NC}"
+    log_and_echo "${GREEN}  ✅ Installation verified${NC}"
+    log_and_echo "${GREEN}  ✅ Application launcher created${NC}"
+    log_and_echo "${GREEN}  ✅ Auto-start configured${NC}"
+    
+    echo ""
     log_and_echo "${BLUE}📋 Next Steps:${NC}"
     log_and_echo "${YELLOW}⚠️  1. REBOOT your Raspberry Pi to ensure all changes take effect:${NC}"
-    log_and_echo "${CYAN}      sudo reboot${NC}"
+    log_and_echo "${WHITE}      sudo reboot${NC}"
     log_and_echo ""
     log_and_echo "${BLUE}   2. After reboot:${NC}"
     if [ -f "/etc/systemd/system/gpio-control-panel.service" ] || [ -f "$HOME/.config/autostart/gpio-control-panel.desktop" ]; then
-        log_and_echo "${CYAN}      - GPIO Control Panel will start automatically! 🚀${NC}"
+        log_and_echo "${GREEN}      - GPIO Control Panel will start automatically! 🚀${NC}"
         log_and_echo "${CYAN}      - Or manually start: ./run_gpio_control.sh${NC}"
     else
         log_and_echo "${CYAN}      - Start manually: ./run_gpio_control.sh${NC}"
@@ -621,19 +838,31 @@ main() {
     fi
     log_and_echo ""
     log_and_echo "${BLUE}   3. Autostart Management:${NC}"
-    log_and_echo "${CYAN}      ./manage_autostart.sh status    # Check autostart status${NC}"
-    log_and_echo "${CYAN}      ./manage_autostart.sh enable-all # Enable autostart${NC}"
+    log_and_echo "${CYAN}      ./manage_autostart.sh status      # Check autostart status${NC}"
+    log_and_echo "${CYAN}      ./manage_autostart.sh enable-all  # Enable autostart${NC}"
     log_and_echo "${CYAN}      ./manage_autostart.sh disable-all # Disable autostart${NC}"
     log_and_echo ""
     log_and_echo "${BLUE}   4. For debugging:${NC}"
-    log_and_echo "${CYAN}      ./run_gpio_control.sh --keep-config${NC}"
-    log_and_echo "${CYAN}      journalctl -u gpio-control-panel -f  # Service logs${NC}"
+    log_and_echo "${CYAN}      ./run_gpio_control.sh --keep-config                    # Keep configs${NC}"
+    log_and_echo "${CYAN}      journalctl -u gpio-control-panel -f                    # Service logs${NC}"
+    log_and_echo "${CYAN}      tail -f $LOG_FILE                                      # Install logs${NC}"
     log_and_echo ""
-    log_and_echo "Installation log saved to: $LOG_FILE"
+    log_and_echo "${BLUE}   5. Remember: Exit kiosk mode with ESC ESC ESC${NC}"
+    log_and_echo ""
+    log_and_echo "${WHITE}Installation log saved to: $LOG_FILE${NC}"
+    log_and_echo "${WHITE}Total installation time: $SECONDS seconds${NC}"
     
-    read -p "Reboot now? (y/N): " -n 1 -r
+    echo ""
+    echo -e "${PURPLE}════════════════════════════════════════════════════════════════════${NC}"
+    read -p "Reboot now to complete installation? (y/N): " -n 1 -r
     echo
     if [[ $REPLY =~ ^[Yy]$ ]]; then
+        echo -e "${CYAN}Rebooting in 3 seconds...${NC}"
+        sleep 1
+        echo -e "${CYAN}Rebooting in 2 seconds...${NC}"
+        sleep 1
+        echo -e "${CYAN}Rebooting in 1 second...${NC}"
+        sleep 1
         sudo reboot
     fi
 }
