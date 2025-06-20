@@ -35,15 +35,13 @@ class GPIOConfiguratorApp:
         self.root = root
         self.root.title("GPIO Control Panel")
         
-        # Use screen-sized window approach instead of fullscreen
-        screen_width = self.root.winfo_screenwidth()
-        screen_height = self.root.winfo_screenheight()
-        self.root.geometry(f"{screen_width}x{screen_height}+0+0")
-        self.root.overrideredirect(True)  # Remove window decorations
+        # Use fixed window size - no fullscreen functionality
+        self.root.geometry("800x480")
         self.root.resizable(False, False)
-        self.root.attributes("-topmost", True)
         self.root.configure(bg="#1e1e2e")
-        self.fullscreen = True
+        self.fullscreen = False
+        
+        logger.info("Fixed window mode: 800x480 - no fullscreen functionality")
 
         # Set up simulation tracking (used regardless of actual platform)
         self.simulated_inputs = {pin: 1 for pin in MONITORING_PINS}
@@ -93,46 +91,17 @@ class GPIOConfiguratorApp:
             logger.error(traceback.format_exc())
             messagebox.showerror("Error", f"Error setting up GUI: {e}")
         self.setup_key_bindings()
-        if not SIMULATED_MODE:
-            try:
-                self.toggle_fullscreen(None)
-                logger.info("Fullscreen mode activated")
-            except Exception as e:
-                logger.error(f"Error setting fullscreen: {e}")
+        # Fullscreen activation removed to prevent errors
         logger.info("Application initialization complete")
 
     def toggle_fullscreen(self, event=None):
-        """Simplified screen-sized window toggle"""
+        """Disabled - no fullscreen functionality to avoid errors"""
         try:
-            if getattr(self, 'fullscreen', True):
-                # Currently screen-sized -> switch to windowed
-                self.root.overrideredirect(False)  # Restore window decorations
-                self.root.attributes("-topmost", False)  # Remove always-on-top
-                self.root.geometry("800x480+100+50")  # Set windowed size with offset
-                self.root.title("GPIO Control Panel - Windowed Mode")
-                self.root.resizable(False, False)  # Keep non-resizable
-                self.fullscreen = False
-                logger.info("Switched to windowed mode")
-            else:
-                # Currently windowed -> switch to screen-sized
-                self.root.title("")  # Remove title
-                
-                # Get current screen dimensions
-                screen_width = self.root.winfo_screenwidth()
-                screen_height = self.root.winfo_screenheight()
-                
-                # Set to screen size and remove decorations
-                self.root.geometry(f"{screen_width}x{screen_height}+0+0")
-                self.root.overrideredirect(True)  # Remove decorations
-                self.root.attributes("-topmost", True)  # Keep on top
-                self.root.resizable(False, False)  # Keep non-resizable
-                
-                self.fullscreen = True
-                logger.info(f"Switched to screen-sized mode: {screen_width}x{screen_height}")
-            
+            # Fullscreen functionality completely disabled to prevent errors
+            logger.info("Fullscreen toggle disabled - staying in fixed 800x480 window mode")
             return "break"  # Prevent the event from propagating
         except Exception as e:
-            logger.error(f"Error toggling display mode: {e}")
+            logger.error(f"Error in disabled fullscreen function: {e}")
             return "break"
 
     def draw_square(self, name, x, y, size=10, color="red"):

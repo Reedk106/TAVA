@@ -47,49 +47,25 @@ except ImportError:
     from tkinter import ttk
     BOOTSTRAP_AVAILABLE = False
 
-# Kiosk Mode Configuration
-KIOSK_MODE_ENABLED = True       # Set to False to allow normal window operations
+# Kiosk Mode Configuration - DISABLED to avoid fullscreen issues
+KIOSK_MODE_ENABLED = False       # Set to False to allow normal window operations
 
 class GPIOConfiguratorApp:
     def __init__(self, root):
         logger.info("Initializing application...")
         self.root = root
         
-        if KIOSK_MODE_ENABLED:
-            # New approach: Window sized to screen, unmoveable, no complex fullscreen
-            import platform
-            system = platform.system()
-            
-            # Get screen dimensions
-            screen_width = self.root.winfo_screenwidth()
-            screen_height = self.root.winfo_screenheight()
-            
-            # Set window to exact screen size and position at 0,0
-            self.root.geometry(f"{screen_width}x{screen_height}+0+0")
-            
-            # Remove window decorations to make it look fullscreen
-            self.root.overrideredirect(True)
-            
-            # Make it non-resizable and keep on top
-            self.root.resizable(False, False)
-            self.root.attributes("-topmost", True)
-            
-            # Set the fullscreen flag for compatibility with existing code
-            self.fullscreen = True
-            
-            # Teacher escape sequence state (keep existing escape functionality)
-            self.escape_sequence = []
-            self.escape_target = ['Escape', 'Escape', 'Escape']  # Press ESC ESC ESC to close
-            
-            logger.info(f"Screen-sized window mode: {screen_width}x{screen_height} - unmoveable, no decorations")
-        else:
-            # Normal windowed mode
-            self.root.title("GPIO Control Panel")
-            self.root.geometry("800x480")
-            self.root.resizable(False, False)
-            self.fullscreen = False
-            
-            logger.info("Normal windowed mode - standard controls available")
+        # Use fixed window size - no more fullscreen or screen-sized modes
+        self.root.title("GPIO Control Panel")
+        self.root.geometry("800x480")
+        self.root.resizable(False, False)
+        self.root.configure(bg="#1e1e2e")
+        self.fullscreen = False
+        
+        logger.info("Fixed window mode: 800x480 - no fullscreen functionality")
+        
+        # Remove all fullscreen-related functionality for stability
+        # Teacher escape sequence removed since we're not in kiosk mode
         
         self.root.configure(bg="#1e1e2e")
 
@@ -325,136 +301,30 @@ class GPIOConfiguratorApp:
             # Toggle analog simulation mode (T key)
             self.root.bind("<KeyPress-t>", lambda e: self.toggle_simulation_mode())
 
-            # Teacher escape sequence (only in kiosk mode)
-            if KIOSK_MODE_ENABLED:
-                self.root.bind("<KeyPress>", self.handle_teacher_escape)
-                # Add F11 for fullscreen toggle even in kiosk mode (for debugging)
-                self.root.bind("<F11>", self.toggle_fullscreen)
-                logger.info("Teacher escape sequence: ESC ESC ESC")
-                logger.info("F11 key available for fullscreen toggle")
-            else:
-                # Normal fullscreen toggle in windowed mode
-                self.root.bind("<F11>", self.toggle_fullscreen)
+            # Normal fullscreen toggle in windowed mode
+            self.root.bind("<F11>", self.toggle_fullscreen)
             self.root.focus_set()
 
-            logger.info("Key bindings set up - kiosk mode active")
+            logger.info("Key bindings set up - fixed window mode active")
 
         except Exception as e:
             logger.error(f"Error setting up key bindings: {e}")
             logger.error(traceback.format_exc())
 
-    def handle_teacher_escape(self, event):
-        """Handle teacher escape sequence to close application (kiosk mode only)"""
-        if not KIOSK_MODE_ENABLED:
-            return  # Only work in kiosk mode
-            
-        try:
-            key = event.keysym
-            
-            # Add key to sequence
-            self.escape_sequence.append(key)
-            
-            # Keep only the last 3 keys
-            if len(self.escape_sequence) > 3:
-                self.escape_sequence = self.escape_sequence[-3:]
-            
-            # Check if escape sequence matches
-            if self.escape_sequence == self.escape_target:
-                logger.info("Teacher escape sequence detected - allowing application exit")
-                messagebox.showinfo("Teacher Mode", 
-                                  "🎓 Teacher Access Granted\n\n"
-                                  "Application will now close.\n"
-                                  "Students will not see this message normally.",
-                                  parent=self.root)
-                self.teacher_exit()
-            
-            # Reset sequence if wrong key pressed (except ESC which is part of sequence)
-            elif key not in ['Escape']:
-                self.escape_sequence = []
-                
-        except Exception as e:
-            logger.error(f"Error in teacher escape handler: {e}")
-    
-    def teacher_exit(self):
-        """Clean shutdown for teacher access"""
-        try:
-            # Perform clean shutdown
-            self.stop_pin_monitoring()
-            if hasattr(self, 'stop_analog_monitoring'):
-                self.stop_analog_monitoring()
-            if hasattr(self, 'stop_audio_monitor'):
-                self.stop_audio_monitor()
-            cleanup_gpio()
-            self.root.destroy()
-        except Exception as e:
-            logger.error(f"Error during teacher exit: {e}")
-            # Force exit if clean shutdown fails
-            import sys
-            sys.exit(0)
-
     def toggle_fullscreen(self, event=None):
-        """Simplified window mode toggle - switches between screen-sized and windowed"""
+        """Disabled - no fullscreen functionality to avoid errors"""
         try:
-            if KIOSK_MODE_ENABLED:
-                # Simple approach: toggle between screen-sized (kiosk) and normal windowed
-                if getattr(self, 'fullscreen', True):
-                    # Currently screen-sized -> switch to windowed
-                    self.root.overrideredirect(False)  # Restore window decorations
-                    self.root.attributes("-topmost", False)  # Remove always-on-top
-                    self.root.geometry("800x480+100+50")  # Set windowed size with offset
-                    self.root.title("GPIO Control Panel - Windowed Mode")
-                    self.root.resizable(False, False)  # Keep non-resizable
-                    self.fullscreen = False
-                    logger.info("Switched to windowed mode - window decorations restored")
-                else:
-                    # Currently windowed -> switch to screen-sized
-                    self.root.title("")  # Remove title
-                    
-                    # Get current screen dimensions
-                    screen_width = self.root.winfo_screenwidth()
-                    screen_height = self.root.winfo_screenheight()
-                    
-                    # Set to screen size and remove decorations
-                    self.root.geometry(f"{screen_width}x{screen_height}+0+0")
-                    self.root.overrideredirect(True)  # Remove decorations
-                    self.root.attributes("-topmost", True)  # Keep on top
-                    self.root.resizable(False, False)  # Keep non-resizable
-                    
-                    self.fullscreen = True
-                    logger.info(f"Switched to screen-sized mode: {screen_width}x{screen_height}")
-                
-                # Log the change
-                mode = "SCREEN-SIZED" if self.fullscreen else "WINDOWED"
-                logger.info(f"Display mode toggled to: {mode}")
-                
-                # Show temporary status (only if no config window is open)
-                if not hasattr(self, 'config_window') or not self.config_window.winfo_exists():
-                    self.show_mode_status(mode)
-                
-            else:
-                # Normal windowed mode - simple toggle if needed
-                self.fullscreen = not self.fullscreen
-                if self.fullscreen:
-                    # Get screen dimensions and set window to screen size
-                    screen_width = self.root.winfo_screenwidth()
-                    screen_height = self.root.winfo_screenheight()
-                    self.root.geometry(f"{screen_width}x{screen_height}+0+0")
-                    self.root.overrideredirect(True)
-                    logger.info(f"Switched to screen-sized mode: {screen_width}x{screen_height}")
-                else:
-                    # Return to normal windowed mode
-                    self.root.overrideredirect(False)
-                    self.root.geometry("800x480+100+50")
-                    self.root.title("GPIO Control Panel")
-                    logger.info("Switched to normal windowed mode")
+            # Fullscreen functionality completely disabled to prevent errors
+            logger.info("Fullscreen toggle disabled - staying in fixed 800x480 window mode")
             
-            # Force a GUI update to ensure changes take effect
-            self.root.update_idletasks()
+            # Show a brief message that fullscreen is disabled
+            if not hasattr(self, 'config_window') or not self.config_window.winfo_exists():
+                self.show_mode_status("FIXED_SIZE")
+            
             return "break"  # Prevent event propagation
             
         except Exception as e:
-            logger.error(f"Error toggling display mode: {e}")
-            logger.error(traceback.format_exc())
+            logger.error(f"Error in disabled fullscreen function: {e}")
             return "break"
 
     def show_mode_status(self, mode):
@@ -478,12 +348,12 @@ class GPIOConfiguratorApp:
             status_window.geometry(f'+{x}+{y}')
             
             # Create the status message
-            if mode == "WINDOWED":
-                message = "🖼️ WINDOWED MODE\nNormal Window"
+            if mode == "FIXED_SIZE":
+                message = "🖼️ FIXED SIZE MODE\n800x480 Window"
                 color = "#4CAF50"  # Green
-            else:  # SCREEN-SIZED
-                message = "🖥️ SCREEN-SIZED\nFull Coverage"
-                color = "#2196F3"  # Blue
+            else:
+                message = "🖼️ WINDOW MODE\nStandard Size"
+                color = "#4CAF50"  # Green
             
             status_label = tk.Label(status_window,
                                   text=message,
