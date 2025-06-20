@@ -24,6 +24,8 @@ from control_panel import (
     create_gauge_overlays, toggle_simulation_mode
 )
 from overlays import create_status_overlays, animate_no_config
+import signal
+import os
 
 # Safe import of auto-updater (optional feature)
 try:
@@ -160,6 +162,8 @@ class GPIOConfiguratorApp:
         self.setup_gui()
         # Add missing key bindings setup
         self.setup_key_bindings()
+        # Setup signal handlers for external control
+        self.setup_signal_handlers()
         
         # Show startup notification that configs were cleared
         self.root.after(1000, self.show_startup_notification)
@@ -320,7 +324,10 @@ class GPIOConfiguratorApp:
             # Teacher escape sequence (only in kiosk mode)
             if KIOSK_MODE_ENABLED:
                 self.root.bind("<KeyPress>", self.handle_teacher_escape)
+                # Add F11 for fullscreen toggle even in kiosk mode (for debugging)
+                self.root.bind("<F11>", self.toggle_fullscreen)
                 logger.info("Teacher escape sequence: ESC ESC ESC")
+                logger.info("F11 key available for fullscreen toggle")
             else:
                 # Normal fullscreen toggle in windowed mode
                 self.root.bind("<F11>", self.toggle_fullscreen)
@@ -382,9 +389,133 @@ class GPIOConfiguratorApp:
             sys.exit(0)
 
     def toggle_fullscreen(self, event=None):
-        """Toggle fullscreen mode - disabled in kiosk mode"""
-        logger.info("Fullscreen toggle disabled in kiosk mode")
-        return
+        """Toggle fullscreen mode - now works in kiosk mode via signal"""
+        try:
+            # Store the previous state for logging
+            was_fullscreen = getattr(self, 'fullscreen', True)
+            
+            if KIOSK_MODE_ENABLED:
+                # In kiosk mode, we can still toggle fullscreen
+                # This helps with config windows and debugging
+                import platform
+                system = platform.system()
+                
+                if system == "Windows":
+                    # Toggle Windows fullscreen
+                    current_fullscreen = self.root.attributes("-fullscreen")
+                    new_fullscreen = not current_fullscreen
+                    self.root.attributes("-fullscreen", new_fullscreen)
+                    self.fullscreen = new_fullscreen
+                    
+                    if new_fullscreen:
+                        self.root.attributes("-topmost", True)
+                    else:
+                        self.root.attributes("-topmost", False)
+                        
+                else:
+                    # Linux/Pi: Toggle between override-redirect and normal window
+                    current_override = self.root.overrideredirect()
+                    if current_override:
+                        # Switch to normal windowed mode
+                        self.root.overrideredirect(False)
+                        self.root.geometry("800x480")
+                        self.root.title("GPIO Control Panel - Windowed Mode")
+                        self.fullscreen = False
+                    else:
+                        # Switch back to fullscreen kiosk mode
+                        self.root.overrideredirect(True)
+                        self.root.geometry(f"{self.root.winfo_screenwidth()}x{self.root.winfo_screenheight()}+0+0")
+                        self.fullscreen = True
+                
+                # Log the change
+                mode = "FULLSCREEN" if self.fullscreen else "WINDOWED"
+                logger.info(f"Display mode toggled to: {mode}")
+                
+                # Show temporary status
+                self.show_mode_status(mode)
+                
+            else:
+                # Normal windowed mode toggle (existing functionality)
+                self.fullscreen = not self.fullscreen
+                self.root.attributes("-fullscreen", self.fullscreen)
+                logger.info(f"Fullscreen toggled: {self.fullscreen}")
+            
+            return "break"  # Prevent event propagation
+            
+        except Exception as e:
+            logger.error(f"Error toggling fullscreen: {e}")
+            return "break"
+
+    def show_mode_status(self, mode):
+        """Show a temporary status indicator for mode changes"""
+        try:
+            # Create a temporary status overlay
+            status_window = tk.Toplevel(self.root)
+            status_window.title("Mode Status")
+            status_window.geometry("300x100")
+            status_window.configure(bg="#1e1e2e")
+            status_window.resizable(False, False)
+            
+            # Make it always on top and center it
+            status_window.attributes("-topmost", True)
+            status_window.transient(self.root)
+            
+            # Center the status window
+            status_window.update_idletasks()
+            x = (status_window.winfo_screenwidth() // 2) - (150)
+            y = (status_window.winfo_screenheight() // 2) - (50)
+            status_window.geometry(f'+{x}+{y}')
+            
+            # Create the status message
+            if mode == "WINDOWED":
+                message = "🖼️ WINDOWED MODE\nConfig windows will work properly"
+                color = "#4CAF50"  # Green
+            else:
+                message = "🖥️ FULLSCREEN MODE\nKiosk mode active"
+                color = "#2196F3"  # Blue
+            
+            status_label = tk.Label(status_window,
+                                  text=message,
+                                  font=("Arial", 12, "bold"),
+                                  fg=color,
+                                  bg="#1e1e2e",
+                                  justify="center")
+            status_label.pack(expand=True)
+            
+            # Auto-close after 2 seconds
+            status_window.after(2000, status_window.destroy)
+            
+        except Exception as e:
+            logger.error(f"Error showing mode status: {e}")
+
+    def setup_signal_handlers(self):
+        """Setup signal handlers for external control"""
+        try:
+            def signal_toggle_fullscreen(signum, frame):
+                """Signal handler to toggle fullscreen from external script"""
+                logger.info("Received external fullscreen toggle signal")
+                self.root.after(0, self.toggle_fullscreen)
+            
+            def signal_open_config(signum, frame):
+                """Signal handler to open config window from external script"""
+                logger.info("Received external config window signal")
+                self.root.after(0, self.open_config_window)
+            
+            # Use SIGUSR1 for fullscreen toggle
+            signal.signal(signal.SIGUSR1, signal_toggle_fullscreen)
+            # Use SIGUSR2 for config window
+            signal.signal(signal.SIGUSR2, signal_open_config)
+            
+            logger.info("Signal handlers setup for external control")
+            
+            # Create PID file for external scripts to use
+            pid_file = "/tmp/gpio_control_panel.pid"
+            with open(pid_file, "w") as f:
+                f.write(str(os.getpid()))
+            logger.info(f"PID file created: {pid_file}")
+            
+        except Exception as e:
+            logger.error(f"Error setting up signal handlers: {e}")
 
     def key_down(self, event):
         """Handle key down event for mic control"""

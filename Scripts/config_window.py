@@ -10,11 +10,20 @@ logger = logging.getLogger("GPIO_Control")
 
 
 def open_config_window(self):
-    """Open the configuration window with touch-friendly interface"""
+    """Open the configuration window with enhanced visibility for fullscreen mode"""
     try:
         logger.info("Opening configuration window")
+        
+        # Check if we're in fullscreen mode and temporarily switch to windowed for config
+        was_fullscreen = getattr(self, 'fullscreen', False)
+        if hasattr(self, 'fullscreen') and self.fullscreen:
+            logger.info("Temporarily switching to windowed mode for config window")
+            self.toggle_fullscreen()  # Switch to windowed mode
+            # Give it a moment to switch
+            self.root.update()
+            
         self.config_window = tk.Toplevel(self.root)
-        self.config_window.title("Configure GPIO")
+        self.config_window.title("Configure GPIO - GPIO Control Panel")
 
         # Set window to exact size of main application
         self.config_window.geometry("800x480")
@@ -23,31 +32,67 @@ def open_config_window(self):
         # Use same background as main application
         self.config_window.configure(bg="#1e1e2e")
         
-        # Ensure window appears on top of main application (especially important in kiosk mode)
+        # Enhanced visibility settings for all platforms
         self.config_window.attributes("-topmost", True)
         self.config_window.transient(self.root)
         self.config_window.grab_set()
         
-        # Force window to front and focus (especially important on Pi)
-        self.config_window.lift()
-        self.config_window.focus_force()
-        self.config_window.update()  # Force immediate update
+        # Platform-specific window management
+        import platform
+        system = platform.system()
+        
+        if system == "Linux":
+            # On Linux/Pi, ensure it's not affected by override-redirect
+            self.config_window.overrideredirect(False)
+            self.config_window.wm_attributes("-type", "dialog")
+        
+        # Force window to front and focus with multiple attempts
+        for i in range(3):
+            self.config_window.lift()
+            self.config_window.focus_force()
+            self.config_window.attributes("-topmost", True)
+            self.config_window.update()
+            self.root.after(50)  # Small delay between attempts
 
-        # Ensure it's centered on the screen
+        # Enhanced centering function
         def center_window(window):
             window.update_idletasks()
             width = window.winfo_width()
             height = window.winfo_height()
-            x = (window.winfo_screenwidth() // 2) - (width // 2)
-            y = (window.winfo_screenheight() // 2) - (height // 2)
-            window.geometry(f'+{x}+{y}')
+            screen_width = window.winfo_screenwidth()
+            screen_height = window.winfo_screenheight()
+            x = (screen_width // 2) - (width // 2)
+            y = (screen_height // 2) - (height // 2)
+            
+            # Ensure window is fully on screen
+            x = max(0, min(x, screen_width - width))
+            y = max(0, min(y, screen_height - height))
+            
+            window.geometry(f'{width}x{height}+{x}+{y}')
+            logger.info(f"Config window positioned at {x},{y} ({width}x{height})")
 
         # Center the window after forcing visibility
         center_window(self.config_window)
         
-        # Additional visibility enforcement after centering
+        # Final visibility enforcement
         self.config_window.lift()
         self.config_window.attributes("-topmost", True)
+        self.config_window.focus_set()
+        
+        # Store fullscreen state to restore later
+        self.config_window._was_fullscreen = was_fullscreen
+        
+        # Add close handler to restore fullscreen if needed
+        def on_config_close():
+            was_fullscreen = getattr(self.config_window, '_was_fullscreen', False)
+            self.config_window.destroy()
+            
+            # Restore fullscreen mode if it was active before
+            if was_fullscreen and hasattr(self, 'fullscreen') and not self.fullscreen:
+                logger.info("Restoring fullscreen mode after config window closed")
+                self.root.after(100, self.toggle_fullscreen)
+                
+        self.config_window.protocol("WM_DELETE_WINDOW", on_config_close)
 
         # Create a main frame with padding
         # Use tk.Frame when we need background color, as TTK frames don't support bg option
@@ -197,7 +242,15 @@ def open_config_window(self):
             save_config(config_data)
             self.load_gpio_controls()
             self.update_overlay_status()
+            
+            # Check if we need to restore fullscreen mode
+            was_fullscreen = getattr(self.config_window, '_was_fullscreen', False)
             self.config_window.destroy()
+            
+            # Restore fullscreen mode if it was active before
+            if was_fullscreen and hasattr(self, 'fullscreen') and not self.fullscreen:
+                logger.info("Restoring fullscreen mode after config window closed")
+                self.root.after(100, self.toggle_fullscreen)  # Small delay to ensure window is destroyed
 
         # Buttons with larger, more touch-friendly size
         # Use tk.Frame when we need background color, as TTK frames don't support bg option
