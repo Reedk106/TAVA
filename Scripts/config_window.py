@@ -6,8 +6,150 @@ import traceback
 from config_manager import save_config, config_data
 from constants import NOSE_GEAR_PIN, LEFT_GEAR_PIN, RIGHT_GEAR_PIN, LEFT_NAV_PIN, RIGHT_NAV_PIN, TAIL_NAV_PIN, MIC_CONTROL_PIN, ANALOG_INPUT_MODULE_ID
 from gpio_handler import SIMULATED_MODE
+
 logger = logging.getLogger("GPIO_Control")
 
+def simple_teacher_test(app_instance):
+    """Simple test function to verify button works"""
+    try:
+        logger.info("Simple teacher test button clicked!")
+        messagebox.showinfo("Test", "Teacher button is working!\nDefault password is: Training", parent=app_instance.root)
+    except Exception as e:
+        logger.error(f"Error in simple test: {e}")
+
+def show_teacher_password_dialog(app_instance):
+    """Show password dialog for teacher mode activation"""
+    try:
+        # Simple hardcoded password - change this line to match V3.0.py
+        # TODO: Change this if you've modified TEACHER_PASSWORD in V3.0.py
+        correct_password = "Training"
+        
+        logger.info("Creating teacher password dialog")
+        
+        # Create password dialog - make it a child of the config window for proper layering
+        password_dialog = tk.Toplevel(app_instance.config_window)
+        password_dialog.title("Teacher Mode Access")
+        password_dialog.geometry("400x200")
+        password_dialog.configure(bg="#1e1e2e")
+        password_dialog.resizable(False, False)
+        
+        # Enhanced window management for proper layering
+        password_dialog.transient(app_instance.config_window)  # Make it a child of config window
+        password_dialog.grab_set()  # Make it modal
+        password_dialog.attributes("-topmost", True)  # Keep on top
+        password_dialog.lift()  # Bring to front
+        password_dialog.focus_force()  # Force focus
+        
+        # Center the dialog relative to the config window
+        password_dialog.update_idletasks()
+        config_x = app_instance.config_window.winfo_x()
+        config_y = app_instance.config_window.winfo_y()
+        config_width = app_instance.config_window.winfo_width()
+        config_height = app_instance.config_window.winfo_height()
+        
+        # Position in center of config window
+        x = config_x + (config_width // 2) - (400 // 2)
+        y = config_y + (config_height // 2) - (200 // 2)
+        password_dialog.geometry(f'400x200+{x}+{y}')
+        
+        logger.info("Password dialog window created and positioned")
+        
+        # Create content
+        title_label = tk.Label(password_dialog, 
+                             text="🔒 Teacher Mode Access",
+                             font=("Arial", 16, "bold"),
+                             fg="#FFC107",  # Amber color
+                             bg="#1e1e2e")
+        title_label.pack(pady=20)
+        
+        instruction_label = tk.Label(password_dialog,
+                                   text="Enter teacher password:",
+                                   font=("Arial", 12),
+                                   fg="white",
+                                   bg="#1e1e2e")
+        instruction_label.pack(pady=(0, 10))
+        
+        # Password entry (hidden text)
+        password_var = tk.StringVar()
+        password_entry = tk.Entry(password_dialog,
+                                textvariable=password_var,
+                                font=("Arial", 14),
+                                show="*",  # Hide the text with asterisks
+                                width=25,
+                                justify="center")
+        password_entry.pack(pady=10)
+        
+        # Button frame
+        button_frame = tk.Frame(password_dialog, bg="#1e1e2e")
+        button_frame.pack(pady=20)
+        
+        def check_password():
+            try:
+                logger.info("Checking password...")
+                entered_password = password_var.get()
+                if entered_password == correct_password:
+                    logger.info("Password correct, activating teacher mode")
+                    password_dialog.destroy()
+                    app_instance.activate_teacher_mode()
+                else:
+                    logger.warning("Incorrect password entered")
+                    # Show error and clear field
+                    password_var.set("")
+                    password_entry.configure(bg="#ffcccc")  # Light red background
+                    password_dialog.after(1000, lambda: password_entry.configure(bg="white"))
+            except Exception as e:
+                logger.error(f"Error in check_password: {e}")
+                logger.error(traceback.format_exc())
+                try:
+                    password_dialog.destroy()
+                except:
+                    pass
+        
+        def cancel_dialog():
+            try:
+                logger.info("Password dialog cancelled")
+                password_dialog.destroy()
+            except Exception as e:
+                logger.error(f"Error canceling dialog: {e}")
+        
+        # Buttons
+        ok_button = tk.Button(button_frame,
+                             text="Enter",
+                             command=check_password,
+                             bg="#4CAF50",
+                             fg="white",
+                             font=("Arial", 12),
+                             width=10)
+        ok_button.pack(side=tk.LEFT, padx=10)
+        
+        cancel_button = tk.Button(button_frame,
+                                 text="Cancel", 
+                                 command=cancel_dialog,
+                                 bg="#f44336",
+                                 fg="white",
+                                 font=("Arial", 12),
+                                 width=10)
+        cancel_button.pack(side=tk.LEFT, padx=10)
+        
+        # Bind Enter key to submit and focus on entry
+        password_entry.bind("<Return>", lambda e: check_password())
+        password_dialog.bind("<Escape>", lambda e: cancel_dialog())
+        
+        # Focus on the password entry
+        password_entry.focus_set()
+        
+        logger.info("Teacher password dialog fully created and ready")
+        
+    except Exception as e:
+        logger.error(f"Critical error in show_teacher_password_dialog: {e}")
+        logger.error(traceback.format_exc())
+        # Try to show an error message
+        try:
+            messagebox.showerror("Teacher Mode Error", 
+                               f"Could not open teacher mode dialog.\n\nError: {str(e)}", 
+                               parent=app_instance.root)
+        except:
+            logger.error("Could not even show error message box")
 
 def open_config_window(self):
     """Open the configuration window with enhanced Pi-compatible visibility"""
@@ -36,6 +178,9 @@ def open_config_window(self):
         # Set window to exact size of main application
         self.config_window.geometry("800x480")
         self.config_window.resizable(False, False)
+        
+        # Remove header bar for consistency with main window
+        self.config_window.overrideredirect(True)
 
         # Use same background as main application
         self.config_window.configure(bg="#1e1e2e")
@@ -117,6 +262,27 @@ def open_config_window(self):
         # Use tk.Frame when we need background color, as TTK frames don't support bg option
         main_frame = tk.Frame(self.config_window, bg="#1e1e2e", padx=20, pady=20)
         main_frame.pack(fill=tk.BOTH, expand=True)
+        
+        # Add a close button in the top-right corner since we removed the header bar
+        close_frame = tk.Frame(main_frame, bg="#1e1e2e")
+        close_frame.pack(fill=tk.X, pady=(0, 10))
+        
+        config_title = tk.Label(close_frame, 
+                               text="GPIO Configuration", 
+                               font=("Arial", 16, "bold"),
+                               fg="white", 
+                               bg="#1e1e2e")
+        config_title.pack(side=tk.LEFT)
+        
+        close_button = tk.Button(close_frame,
+                                text="✕",
+                                command=on_config_close,
+                                bg="#f44336",
+                                fg="white",
+                                font=("Arial", 12, "bold"),
+                                width=3,
+                                relief=tk.FLAT)
+        close_button.pack(side=tk.RIGHT)
 
         # Define available pins (excluding the monitoring pins)
         all_gpio_pins = [5, 6, 12, 16, 20, 21, 25]
@@ -281,18 +447,28 @@ def open_config_window(self):
             text="Save",
             command=save_assignment,
             style="success.TButton",
-            width=20
+            width=15
         )
-        save_button.pack(side=tk.LEFT, padx=10, expand=True)
+        save_button.pack(side=tk.LEFT, padx=5, expand=True)
 
         clear_button = self.Button(
             button_frame,
             text="Clear All Configs",
             command=self.clear_all_configs,
             style="danger.TButton",
-            width=20
+            width=15
         )
-        clear_button.pack(side=tk.RIGHT, padx=10, expand=True)
+        clear_button.pack(side=tk.LEFT, padx=5, expand=True)
+        
+        # Teacher Mode button
+        teacher_button = self.Button(
+            button_frame,
+            text="Teacher Mode",
+            command=lambda: show_teacher_password_dialog(self),
+            style="warning.TButton",
+            width=15
+        )
+        teacher_button.pack(side=tk.RIGHT, padx=5, expand=True)
 
         logger.info("Configuration window opened")
 

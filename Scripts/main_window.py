@@ -55,14 +55,21 @@ class GPIOConfiguratorApp:
         logger.info("Initializing application...")
         self.root = root
         
+        # Teacher mode state
+        self.teacher_mode = False
+        
         # Use fixed window size - no more fullscreen or screen-sized modes
         self.root.title("GPIO Control Panel")
         self.root.geometry("800x480")
         self.root.resizable(False, False)
         self.root.configure(bg="#1e1e2e")
+        
+        # Remove window decorations (header bar with close button)
+        self.root.overrideredirect(True)
+        
         self.fullscreen = False
         
-        logger.info("Fixed window mode: 800x480 - no fullscreen functionality")
+        logger.info("Fixed window mode: 800x480 - header bar removed for kiosk operation")
         
         # Remove all fullscreen-related functionality for stability
         # Teacher escape sequence removed since we're not in kiosk mode
@@ -87,6 +94,10 @@ class GPIOConfiguratorApp:
         self.analog_thread = None
         self.pin_monitoring = False
         self.pin_monitor_thread = None
+        self.mic_check_running = False
+        
+        # Initialize audio level variable
+        self.audio_level = tk.IntVar()
 
         # UI setup
         try:
@@ -303,9 +314,13 @@ class GPIOConfiguratorApp:
 
             # Normal fullscreen toggle in windowed mode
             self.root.bind("<F11>", self.toggle_fullscreen)
+            
+            # Teacher mode close shortcut (Ctrl+Q)
+            self.root.bind("<Control-q>", lambda e: self.close_application())
+            
             self.root.focus_set()
 
-            logger.info("Key bindings set up - fixed window mode active")
+            logger.info("Key bindings set up - fixed window mode active, Ctrl+Q for teacher close")
 
         except Exception as e:
             logger.error(f"Error setting up key bindings: {e}")
@@ -370,30 +385,39 @@ class GPIOConfiguratorApp:
             logger.warning(f"Could not show mode status: {e}")
 
     def setup_signal_handlers(self):
-        """Setup signal handlers for external control"""
+        """Setup signal handlers for external control (Unix/Linux only)"""
         try:
-            def signal_toggle_fullscreen(signum, frame):
-                """Signal handler to toggle fullscreen from external script"""
-                logger.info("Received external fullscreen toggle signal")
-                self.root.after(0, self.toggle_fullscreen)
+            import platform
+            system = platform.system()
             
-            def signal_open_config(signum, frame):
-                """Signal handler to open config window from external script"""
-                logger.info("Received external config window signal")
-                self.root.after(0, self.open_config_window)
-            
-            # Use SIGUSR1 for fullscreen toggle
-            signal.signal(signal.SIGUSR1, signal_toggle_fullscreen)
-            # Use SIGUSR2 for config window
-            signal.signal(signal.SIGUSR2, signal_open_config)
-            
-            logger.info("Signal handlers setup for external control")
-            
-            # Create PID file for external scripts to use
-            pid_file = "/tmp/gpio_control_panel.pid"
-            with open(pid_file, "w") as f:
-                f.write(str(os.getpid()))
-            logger.info(f"PID file created: {pid_file}")
+            # Only set up signal handlers on Unix/Linux systems
+            if system in ["Linux", "Darwin"]:  # Darwin = macOS
+                def signal_toggle_fullscreen(signum, frame):
+                    """Signal handler to toggle fullscreen from external script"""
+                    logger.info("Received external fullscreen toggle signal")
+                    self.root.after(0, self.toggle_fullscreen)
+                
+                def signal_open_config(signum, frame):
+                    """Signal handler to open config window from external script"""
+                    logger.info("Received external config window signal")
+                    self.root.after(0, self.open_config_window)
+                
+                # Use SIGUSR1 for fullscreen toggle
+                signal.signal(signal.SIGUSR1, signal_toggle_fullscreen)
+                # Use SIGUSR2 for config window
+                signal.signal(signal.SIGUSR2, signal_open_config)
+                
+                logger.info("Signal handlers setup for external control on Unix/Linux")
+                
+                # Create PID file for external scripts to use (Unix path)
+                pid_file = "/tmp/gpio_control_panel.pid"
+                with open(pid_file, "w") as f:
+                    f.write(str(os.getpid()))
+                logger.info(f"PID file created: {pid_file}")
+                
+            else:
+                logger.info(f"Signal handlers not available on {system} - skipping")
+                # On Windows, external scripts aren't supported anyway
             
         except Exception as e:
             logger.error(f"Error setting up signal handlers: {e}")
@@ -427,21 +451,41 @@ class GPIOConfiguratorApp:
                 return
                 
             if not SIMULATED_MODE:
-                import board
-                import busio
-                import adafruit_ads1x15.ads1115 as ADS
-                from adafruit_ads1x15.analog_in import AnalogIn
+                try:
+                    # Try CircuitPython libraries first
+                    import board
+                    import busio
+                    import adafruit_ads1x15.ads1115 as ADS
+                    from adafruit_ads1x15.analog_in import AnalogIn
 
-                i2c = busio.I2C(board.SCL, board.SDA)
-                ads = ADS.ADS1115(i2c)
-                mic_channel = AnalogIn(ads, getattr(ADS, f'P{ADS_MIC_CHANNEL}'))  # Mic on P3
+                    i2c = busio.I2C(board.SCL, board.SDA)
+                    ads = ADS.ADS1115(i2c)
+                    mic_channel = AnalogIn(ads, getattr(ADS, f'P{ADS_MIC_CHANNEL}'))  # Mic on P0
+                    use_circuitpython = True
+                except ImportError:
+                    # Fallback to alternative ADS1115 library
+                    try:
+                        import Adafruit_ADS1x15
+                        ads = Adafruit_ADS1x15.ADS1115()
+                        use_circuitpython = False
+                        logger.info("Using Adafruit_ADS1x15 library for ADS1115")
+                    except ImportError:
+                        logger.error("No ADS1115 library available. Install either adafruit-circuitpython-ads1x15 or Adafruit_ADS1x15")
+                        raise Exception("ADS1115 library not available")
 
                 self.audio_running = True
 
                 def adc_mic_monitor():
                     try:
                         while self.audio_running:
-                            voltage = mic_channel.voltage
+                            if use_circuitpython:
+                                # CircuitPython library
+                                voltage = mic_channel.voltage
+                            else:
+                                # Adafruit_ADS1x15 library
+                                raw_value = ads.read_adc(ADS_MIC_CHANNEL, gain=1)
+                                voltage = raw_value * 4.096 / 32767  # Convert to voltage (assuming ±4.096V range)
+                            
                             # Map to 0–100 scale (based on typical MAX4466 range)
                             level = min(max(int((voltage / 3.3) * 100), 0), 100)
                             self.root.after(0, lambda: self.audio_level.set(level))
@@ -515,16 +559,24 @@ class GPIOConfiguratorApp:
                         if is_function_configured(config_data, "Analog Input Module"):
                             # Read coax signal via ADS1115
                             try:
-                                import board
-                                import busio
-                                import adafruit_ads1x15.ads1115 as ADS
-                                from adafruit_ads1x15.analog_in import AnalogIn
+                                try:
+                                    # Try CircuitPython libraries first
+                                    import board
+                                    import busio
+                                    import adafruit_ads1x15.ads1115 as ADS
+                                    from adafruit_ads1x15.analog_in import AnalogIn
 
-                                i2c = busio.I2C(board.SCL, board.SDA)
-                                ads = ADS.ADS1115(i2c)
-                                coax_channel = AnalogIn(ads, getattr(ADS, f'P{ADS_SIGNAL_CHANNEL}'))  # Signal Quality on P2
+                                    i2c = busio.I2C(board.SCL, board.SDA)
+                                    ads = ADS.ADS1115(i2c)
+                                    coax_channel = AnalogIn(ads, getattr(ADS, f'P{ADS_SIGNAL_CHANNEL}'))  # Signal Quality on P1
+                                    voltage = coax_channel.voltage
+                                except ImportError:
+                                    # Fallback to alternative ADS1115 library
+                                    import Adafruit_ADS1x15
+                                    ads = Adafruit_ADS1x15.ADS1115()
+                                    raw_value = ads.read_adc(ADS_SIGNAL_CHANNEL, gain=1)
+                                    voltage = raw_value * 4.096 / 32767  # Convert to voltage
                                 
-                                voltage = coax_channel.voltage
                                 percent = min(max(int((voltage / 3.3) * 100), 0), 100)
                                 self.root.after(0, lambda: self.signal_quality_label.config(text=f"Signal Quality: {percent}%"))
                                 self.root.after(0, lambda: self.signal_quality_meter.configure(value=percent))
@@ -550,6 +602,25 @@ class GPIOConfiguratorApp:
             logger.info("Pin monitoring stopped")
         except Exception as e:
             logger.error(f"Error stopping pin monitoring: {e}")
+
+    def start_mic_check(self):
+        """Start checking the mic control pin"""
+        try:
+            if not SIMULATED_MODE and is_function_configured(config_data, "Mic Control") and not self.mic_check_running:
+                logger.info("Starting mic pin check...")
+                self.mic_check_running = True
+            else:
+                logger.info("Mic check already running or in simulated mode")
+        except Exception as e:
+            logger.error(f"Error starting mic check: {e}")
+
+    def stop_mic_check(self):
+        """Stop checking the mic control pin"""
+        try:
+            logger.info("Stopping mic pin check")
+            self.mic_check_running = False
+        except Exception as e:
+            logger.error(f"Error stopping mic check: {e}")
 
     def show_startup_notification(self):
         """Show an auto-closing notification that configurations have been cleared for new class session"""
@@ -616,6 +687,69 @@ class GPIOConfiguratorApp:
         except Exception as e:
             logger.error(f"Error showing startup notification: {e}")
 
+    def activate_teacher_mode(self):
+        """Activate teacher mode after password verification"""
+        self.teacher_mode = True
+        logger.info("Teacher mode activated")
+        # Show a temporary confirmation
+        self.show_teacher_mode_status()
+    
+    def show_teacher_mode_status(self):
+        """Show a temporary notification that teacher mode is active"""
+        try:
+            notification = tk.Toplevel(self.root)
+            notification.title("Teacher Mode")
+            notification.geometry("300x150")
+            notification.configure(bg="#1e1e2e")
+            notification.resizable(False, False)
+            notification.overrideredirect(True)  # No header bar for this popup either
+            
+            # Center the notification
+            notification.update_idletasks()
+            x = (notification.winfo_screenwidth() // 2) - (300 // 2)
+            y = (notification.winfo_screenheight() // 2) - (150 // 2)
+            notification.geometry(f'+{x}+{y}')
+            
+            # Create the message content
+            title_label = tk.Label(notification, 
+                                 text="🔓 Teacher Mode Active",
+                                 font=("Arial", 14, "bold"),
+                                 fg="#4CAF50",  # Green color
+                                 bg="#1e1e2e")
+            title_label.pack(pady=20)
+            
+            message_label = tk.Label(notification,
+                                   text="You can now close the program\nusing Ctrl+Q",
+                                   font=("Arial", 10),
+                                   fg="white",
+                                   bg="#1e1e2e",
+                                   justify="center")
+            message_label.pack(pady=10)
+            
+            # Auto-close after 3 seconds
+            notification.after(3000, notification.destroy)
+            
+            logger.info("Teacher mode status notification shown")
+        except Exception as e:
+            logger.error(f"Error showing teacher mode status: {e}")
+
+    def close_application(self):
+        """Close the application (only available in teacher mode)"""
+        if self.teacher_mode:
+            try:
+                self.stop_pin_monitoring()
+                if hasattr(self, 'stop_analog_monitoring'):
+                    self.stop_analog_monitoring()
+                if hasattr(self, 'stop_audio_monitor'):
+                    self.stop_audio_monitor()
+                cleanup_gpio()
+                logger.info("Application closed by teacher")
+                self.root.destroy()
+            except Exception as e:
+                logger.error(f"Error during cleanup: {e}")
+        else:
+            logger.info("Close attempt blocked - teacher mode required")
+
 def run_app():
     import sys
     
@@ -644,25 +778,11 @@ def run_app():
     
     app = GPIOConfiguratorApp(root)
     
-    # Configure window close behavior based on mode
+    # Configure window close behavior - header bar is removed, no close button
     def on_closing():
-        if KIOSK_MODE_ENABLED:
-            """Prevent students from closing application"""
-            logger.info("Close attempt blocked - use teacher escape sequence (ESC ESC ESC)")
-            return  # Do nothing - prevents closing
-        else:
-            """Normal window close in windowed mode"""
-            try:
-                if app:
-                    app.stop_pin_monitoring()
-                    if hasattr(app, 'stop_analog_monitoring'):
-                        app.stop_analog_monitoring()
-                    if hasattr(app, 'stop_audio_monitor'):
-                        app.stop_audio_monitor()
-                cleanup_gpio()
-                root.destroy()
-            except Exception as e:
-                logger.error(f"Error during cleanup: {e}")
+        """Window close blocked - no header bar available"""
+        logger.info("Window close blocked - use teacher mode (Ctrl+Q) to close")
+        return  # Do nothing - prevents closing since header bar is removed anyway
     
     root.protocol("WM_DELETE_WINDOW", on_closing)
     root.mainloop() 

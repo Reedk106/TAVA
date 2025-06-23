@@ -256,7 +256,8 @@ install_python_deps() {
     PYTHON_PACKAGES=(
         "RPi.GPIO:Raspberry Pi GPIO control library"
         "adafruit-blinka:CircuitPython compatibility layer"
-        "adafruit-circuitpython-ads1x15:ADS1115/ADS1015 ADC library"
+        "adafruit-circuitpython-ads1x15:ADS1115/ADS1015 ADC library (CircuitPython)"
+        "Adafruit-ADS1x15:ADS1115/ADS1015 ADC library (Legacy fallback)"
         "Pillow:Python Imaging Library (PIL)"
         "ttkbootstrap:Enhanced Tkinter themes (optional)"
     )
@@ -296,6 +297,10 @@ install_python_deps() {
             # For optional packages, continue
             if [[ "$package" == "ttkbootstrap" ]]; then
                 log_and_echo "${YELLOW}    (Optional package - continuing)${NC}"
+            elif [[ "$package" == "Adafruit-ADS1x15" ]]; then
+                log_and_echo "${YELLOW}    (Fallback ADS1115 library - continuing if CircuitPython version works)${NC}"
+            elif [[ "$package" == "adafruit-circuitpython-ads1x15" ]]; then
+                log_and_echo "${YELLOW}    (Primary ADS1115 library failed - fallback library will be tried)${NC}"
             fi
         fi
         
@@ -396,18 +401,23 @@ def main():
         ("RPi.GPIO", "import RPi.GPIO as GPIO", "Raspberry Pi GPIO"),
         ("board", "import board", "CircuitPython Board"),
         ("busio", "import busio", "CircuitPython Bus IO"),
-        ("ADS1115", "import adafruit_ads1x15.ads1115 as ADS", "ADS1115 Library"),
-        ("AnalogIn", "from adafruit_ads1x15.analog_in import AnalogIn", "Analog Input"),
+        ("ADS1115-CP", "import adafruit_ads1x15.ads1115 as ADS", "ADS1115 Library (CircuitPython)"),
+        ("AnalogIn", "from adafruit_ads1x15.analog_in import AnalogIn", "Analog Input (CircuitPython)"),
+        ("ADS1115-Legacy", "import Adafruit_ADS1x15", "ADS1115 Library (Legacy fallback)"),
         ("PIL", "from PIL import Image, ImageTk", "Python Imaging Library"),
         ("ttkbootstrap", "import ttkbootstrap", "TTK Bootstrap (optional)"),
     ]
     
     passed = 0
     total = len(tests)
+    ads_libraries = 0
     
     for module, import_stmt, desc in tests:
         if test_import(module, import_stmt, desc):
             passed += 1
+            # Count ADS1115 libraries
+            if "ADS1115" in module:
+                ads_libraries += 1
     
     # Test application files
     files_ok = test_application_files()
@@ -416,9 +426,18 @@ def main():
     test_hardware()
     
     print(f"\n📊 Results: {passed}/{total} packages working")
+    print(f"📡 ADS1115 Libraries: {ads_libraries}/2 available (need at least 1)")
     
-    if passed == total and files_ok:
-        print("🎉 All dependencies installed successfully!")
+    # Check if we have essential dependencies
+    critical_missing = passed < (total - 3)  # Allow ttkbootstrap and one ADS library to fail
+    ads_missing = ads_libraries == 0
+    
+    if not critical_missing and not ads_missing and files_ok:
+        print("🎉 All critical dependencies installed successfully!")
+        if ads_libraries == 2:
+            print("✅ Both ADS1115 libraries available (maximum compatibility)")
+        else:
+            print("✅ At least one ADS1115 library available (application will work)")
         print("✅ All application files present!")
         print("\n✅ Your Raspberry Pi is ready to run the GPIO Control Panel!")
         print("\nTo start the application:")
@@ -426,11 +445,13 @@ def main():
         print("  python3 V3.0.py")
         print("\nOr use the launcher script:")
         print("  ./run_gpio_control.sh")
-    elif passed >= total - 1 and files_ok:  # Allow ttkbootstrap to fail
-        print("🎉 All critical dependencies installed!")
-        print("⚠️  TTKBootstrap missing (basic UI will be used)")
-        print("✅ All application files present!")
-        print("\n✅ Your Raspberry Pi is ready to run the GPIO Control Panel!")
+    elif ads_missing:
+        print("❌ No ADS1115 libraries available!")
+        print("🔧 The application requires at least one ADS1115 library")
+        print("   Try installing manually:")
+        print("   pip install adafruit-circuitpython-ads1x15")
+        print("   pip install Adafruit-ADS1x15")
+        return False
     else:
         print("❌ Some critical dependencies or files are missing")
         print("🔧 Please check the installation log and retry")
