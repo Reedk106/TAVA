@@ -4,7 +4,7 @@ sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')
 from main_window import run_app
 
 # GPIO Control Panel Version
-VERSION = "v6.0 - Piedmont Edition"
+VERSION = "v7.0 - Piedmont Edition"
 
 # Teacher Mode Configuration
 # Change this password as needed for your classroom security
